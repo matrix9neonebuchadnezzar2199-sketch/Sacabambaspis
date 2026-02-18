@@ -1,0 +1,28 @@
+﻿# ビルド成果物
+build/
+dist/
+*.spec
+*.exe
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# ログ・バックアップ
+logs/
+backup/
+
+# 環境
+.env
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db
+Desktop.ini

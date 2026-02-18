@@ -1,0 +1,2783 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Sacabambaspis 解析ダッシュボード</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script>
+    (function(){
+        try {
+            var s = JSON.parse(localStorage.getItem('saca-settings'));
+            if (s) {
+                document.documentElement.setAttribute('data-theme', s.theme || 'cyber');
+                document.documentElement.setAttribute('data-mode', s.mode || 'dark');
+                document.documentElement.style.setProperty('--font-size-base', (s.fontSize || 14) + 'px');
+            }
+        } catch(e) {}
+    })();
+    
+
+    // === P14: ローディングオーバーレイ制御 ===
+    function showLoading(text) {
+        var ov = document.getElementById('loading-overlay');
+        var tx = document.getElementById('loading-text');
+        if (tx) tx.textContent = text || 'スキャン実行中...';
+        if (ov) { ov.classList.add('active'); ov.setAttribute('aria-hidden', 'false'); }
+    }
+    function hideLoading() {
+        var ov = document.getElementById('loading-overlay');
+        if (ov) { ov.classList.remove('active'); ov.setAttribute('aria-hidden', 'true'); }
+    }
+
+    // === P14: Escキーでモーダル/パネル閉じる ===
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            // 設定パネル
+            var sp = document.querySelector('.settings-overlay');
+            if (sp && sp.classList.contains('open')) {
+                toggleSettings();
+                return;
+            }
+            // 詳細モーダル
+            var dm = document.querySelector('.detail-modal-overlay');
+            if (dm && dm.classList.contains('open')) {
+                closeDetailModal();
+                return;
+            }
+        }
+    });
+
+    // === P14: フォーカストラップ（設定パネル） ===
+    function trapFocus(element) {
+        var focusable = element.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
+        if (focusable.length === 0) return;
+        var first = focusable[0];
+        var last = focusable[focusable.length - 1];
+        element.addEventListener('keydown', function(e) {
+            if (e.key !== 'Tab') return;
+            if (e.shiftKey) {
+                if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+            } else {
+                if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+        });
+    }
+
+    // 設定パネルにフォーカストラップ適用
+    var settingsPanel = document.querySelector('.settings-panel');
+    if (settingsPanel) trapFocus(settingsPanel);
+
+    // === P14: サイドバーキーボードナビゲーション ===
+    var sidebarBtns = document.querySelectorAll('.sidebar .tab-btn');
+    sidebarBtns.forEach(function(btn, idx) {
+        btn.setAttribute('tabindex', '0');
+        btn.setAttribute('role', 'tab');
+        btn.addEventListener('keydown', function(e) {
+            var next = -1;
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                next = (idx + 1) % sidebarBtns.length;
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                next = (idx - 1 + sidebarBtns.length) % sidebarBtns.length;
+            } else if (e.key === 'Home') {
+                next = 0;
+            } else if (e.key === 'End') {
+                next = sidebarBtns.length - 1;
+            }
+            if (next >= 0) {
+                e.preventDefault();
+                sidebarBtns[next].focus();
+                sidebarBtns[next].click();
+            }
+        });
+    });
+
+    // サイドバーにrole=tablist
+    var sidebarNav = document.querySelector('.sidebar');
+    if (sidebarNav) {
+        var tabContainer = sidebarNav.querySelector('.sidebar-logo');
+        if (tabContainer && tabContainer.nextElementSibling) {
+            // tab-btnの親にrole=tablist
+        }
+    }
+
+    // === P14: スキャンボタンにローディング統合 ===
+    var origRunScan = typeof runScan === 'function' ? runScan : null;
+    if (origRunScan) {
+        window._origRunScan = origRunScan;
+    }
+
+
+
+    // === P15: 検知サマリー表示 ===
+    function updateThreatDisplay(data) {
+        var ta = data && data.threat_assessment;
+        if (!ta) return;
+
+        var bar = document.getElementById('threat-score-bar');
+        if (bar) bar.style.display = 'flex';
+
+        // ステータスバー件数
+        var cd = document.getElementById('threat-count-danger');
+        var cw = document.getElementById('threat-count-warning');
+        var ct = document.getElementById('threat-count-total');
+        if (cd) cd.textContent = 'DANGER: ' + ta.total_danger;
+        if (cw) cw.textContent = 'WARNING: ' + ta.total_warning;
+        if (ct) ct.textContent = '全 ' + ta.total_items + ' 件';
+
+        // レベルバッジ
+        var badge = document.getElementById('threat-level-badge');
+        if (badge) {
+            badge.textContent = ta.level_ja;
+            badge.className = 'threat-level-badge threat-' + ta.level.toLowerCase();
+        }
+
+        // 詳細パネル: DANGER大数字
+        var bigD = document.getElementById('threat-big-danger');
+        if (bigD) {
+            bigD.textContent = ta.total_danger;
+            bigD.className = 'threat-big-number threat-' + ta.level.toLowerCase();
+        }
+
+        // DANGERカテゴリ表示
+        var dcText = document.getElementById('threat-danger-cats-text');
+        if (dcText) {
+            if (ta.danger_categories && ta.danger_categories.length > 0 && ta.category_details) {
+                var parts = ta.danger_categories.map(function(c) {
+                    var d = ta.category_details[c];
+                    return d ? d.label + ' (' + d.danger + ')' : c;
+                });
+                dcText.textContent = parts.join(' / ');
+            } else {
+                dcText.textContent = 'DANGER検知なし';
+            }
+        }
+
+        // 評価コメント
+        var verdict = document.getElementById('threat-verdict');
+        if (verdict) verdict.textContent = ta.verdict;
+
+        // 統計
+        var ids = {
+            'threat-total-danger': ta.total_danger,
+            'threat-total-warning': ta.total_warning,
+            'threat-total-info': ta.total_info,
+            'threat-total-safe': ta.total_safe
+        };
+        for (var id in ids) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = ids[id];
+        }
+
+        // 相関検知
+        var corrDiv = document.getElementById('threat-correlation');
+        var corrList = document.getElementById('threat-correlation-list');
+        if (ta.correlation_reasons && ta.correlation_reasons.length > 0 && corrDiv && corrList) {
+            corrDiv.style.display = 'block';
+            corrList.innerHTML = '';
+            ta.correlation_reasons.forEach(function(r) {
+                var li = document.createElement('li');
+                li.textContent = r;
+                corrList.appendChild(li);
+            });
+        } else if (corrDiv) {
+            corrDiv.style.display = 'none';
+        }
+
+        // カテゴリ別テーブル
+        var tbody = document.getElementById('threat-cat-tbody');
+        if (tbody && ta.category_details) {
+            tbody.innerHTML = '';
+            var cats = Object.keys(ta.category_details).sort(function(a, b) {
+                return ta.category_details[b].danger - ta.category_details[a].danger;
+            });
+            cats.forEach(function(cat) {
+                var d = ta.category_details[cat];
+                var tr = document.createElement('tr');
+                if (d.danger > 0) tr.className = 'threat-cat-danger';
+                else if (d.warning > 0) tr.className = 'threat-cat-warning';
+                tr.innerHTML = '<td>' + d.label + '</td>' +
+                    '<td class="num">' + d.danger + '</td>' +
+                    '<td class="num">' + d.warning + '</td>' +
+                    '<td class="num">' + d.total + '</td>';
+                tbody.appendChild(tr);
+            });
+        }
+    }
+
+        // Escキーで脅威詳細パネルも閉じる（既存のEsc処理に追加）
+    function toggleThreatDetail() {
+        var ov = document.getElementById('threat-detail-overlay');
+        if (ov) ov.classList.toggle('open');
+    }
+
+    var origKeydown = null;
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var td = document.getElementById('threat-detail-overlay');
+            if (td && td.classList.contains('open')) {
+                toggleThreatDetail();
+            }
+        }
+    });
+
+</script>
+<style>
+/* P18: 説明レベルインジケーター */
+[data-explanation-level="beginner"] .cell-desc,
+[data-explanation-level="beginner"] .cell-reason { font-size: calc(var(--font-size-base) + 1px); }
+[data-explanation-level="advanced"] .cell-desc { font-size: calc(var(--font-size-base) - 1px); line-height: 1.6; }
+</style>
+<style>
+/* P19: Decision Tree スタイル */
+.decision-tree-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7); z-index: 10000;
+    display: none; align-items: center; justify-content: center;
+}
+.decision-tree-overlay.open { display: flex; }
+.decision-tree-modal {
+    background: var(--bg-secondary); border: 1px solid var(--border-primary);
+    border-radius: 12px; width: 90%; max-width: 700px; max-height: 85vh;
+    display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.decision-tree-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px; border-bottom: 1px solid var(--border-primary);
+}
+.decision-tree-title { font-size: 1.1rem; font-weight: bold; color: var(--text-primary); }
+.decision-tree-close {
+    background: none; border: none; color: var(--text-muted); font-size: 1.2rem;
+    cursor: pointer; padding: 4px 8px; border-radius: 4px;
+}
+.decision-tree-close:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.decision-tree-body {
+    padding: 20px; overflow-y: auto; flex: 1;
+}
+.dt-flow { display: flex; flex-direction: column; gap: 0; }
+.dt-node {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 0; position: relative;
+}
+.dt-node::before {
+    content: ''; position: absolute; left: 15px; top: 0; bottom: 0;
+    width: 2px; background: var(--border-primary);
+}
+.dt-node:last-child::before { display: none; }
+.dt-icon {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0; z-index: 1; position: relative;
+}
+.dt-icon-check { background: var(--accent-success); color: #fff; }
+.dt-icon-pass { background: rgba(100,100,100,0.3); color: var(--text-muted); border: 2px dashed var(--border-primary); }
+.dt-icon-fail { background: var(--accent-error); color: #fff; }
+.dt-icon-warn { background: var(--accent-warning); color: #0a1628; }
+.dt-icon-info { background: rgba(0,212,255,0.2); color: var(--accent-info, #00d4ff); border: 1px solid var(--accent-info, #00d4ff); }
+.dt-icon-start { background: rgba(0,212,255,0.15); color: var(--accent-info, #00d4ff); border: 2px solid var(--accent-info, #00d4ff); }
+.dt-content { flex: 1; min-width: 0; }
+.dt-label {
+    font-size: 0.85rem; font-weight: bold; color: var(--text-primary);
+    margin-bottom: 2px;
+}
+.dt-detail { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+.dt-result {
+    margin-top: 12px; padding: 12px 16px; border-radius: 8px;
+    border: 2px solid; font-weight: bold; text-align: center;
+}
+.dt-result-danger { border-color: var(--accent-error); color: var(--accent-error); background: rgba(255,59,48,0.08); }
+.dt-result-warning { border-color: var(--accent-warning); color: var(--accent-warning); background: rgba(255,204,0,0.08); }
+.dt-result-safe { border-color: var(--accent-success); color: var(--accent-success); background: rgba(48,209,88,0.08); }
+.dt-result-info { border-color: var(--accent-info, #00d4ff); color: var(--accent-info, #00d4ff); background: rgba(0,212,255,0.08); }
+.dt-btn {
+    background: none; border: 1px solid var(--border-primary); color: var(--text-muted);
+    padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+    margin-left: 6px;
+}
+.dt-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+</style>
+<style>
+/* P18改: 解説タブ UI */
+.desc-tabs { display: flex; gap: 0; margin-bottom: 8px; border-bottom: 2px solid var(--border-primary); }
+.desc-tab {
+    padding: 6px 14px; border: none; background: none; cursor: pointer;
+    font-size: 0.78rem; color: var(--text-muted); border-bottom: 2px solid transparent;
+    margin-bottom: -2px; transition: all 0.2s;
+}
+.desc-tab:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.desc-tab.active { color: var(--accent-info, #00d4ff); border-bottom-color: var(--accent-info, #00d4ff); font-weight: bold; }
+.desc-tab-badge {
+    font-size: 0.65rem; padding: 1px 5px; border-radius: 8px;
+    margin-left: 4px; vertical-align: middle;
+}
+.desc-tab-badge-b { background: rgba(48,209,88,0.15); color: var(--accent-success); }
+.desc-tab-badge-i { background: rgba(0,212,255,0.15); color: var(--accent-info, #00d4ff); }
+.desc-tab-badge-a { background: rgba(175,130,255,0.15); color: #af82ff; }
+.desc-tab-content { display: none; white-space: pre-wrap; line-height: 1.7; font-size: 0.82rem; }
+.desc-tab-content.active { display: block; }
+.desc-section-header {
+    font-weight: bold; color: var(--accent-info, #00d4ff);
+    margin-top: 8px; margin-bottom: 2px; font-size: 0.84rem;
+}
+</style>
+</head>
+<body>
+<a class="skip-nav" href="#main-content">メインコンテンツへスキップ</a>
+<div class="app-layout">
+
+    <!-- ===== サイドバー ===== -->
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="メインナビゲーション">
+        <div class="sidebar-logo">
+            <div class="sidebar-logo-icon">🐟</div>
+            <span class="sidebar-logo-text">SACA v3.1</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="sidebar-section-label">解析</div>
+            <div class="sidebar-item active" data-tab="timeline" onclick="switchTab('timeline', this)">
+                <span class="sidebar-item-icon">⏱️</span>
+                <span class="sidebar-item-text">タイムライン</span>
+            </div>
+            <div class="sidebar-item" data-tab="logs" onclick="switchTab('logs', this)">
+                <span class="sidebar-item-icon">📋</span>
+                <span class="sidebar-item-text">イベントログ</span>
+            </div>
+            <div class="sidebar-item" data-tab="proc" onclick="switchTab('proc', this)">
+                <span class="sidebar-item-icon">⚙️</span>
+                <span class="sidebar-item-text">プロセス</span>
+            </div>
+            <div class="sidebar-item" data-tab="memory" onclick="switchTab('memory', this)">
+                <span class="sidebar-item-icon">🧠</span>
+                <span class="sidebar-item-text">メモリ</span>
+            </div>
+            <div class="sidebar-item" data-tab="persist" onclick="switchTab('persist', this)">
+                <span class="sidebar-item-icon">🔒</span>
+                <span class="sidebar-item-text">永続化</span>
+            </div>
+            <div class="sidebar-item" data-tab="network" onclick="switchTab('network', this)">
+                <span class="sidebar-item-icon">🌐</span>
+                <span class="sidebar-item-text">ネットワーク</span>
+            </div>
+            <div class="sidebar-item" data-tab="evidence" onclick="switchTab('evidence', this)">
+                <span class="sidebar-item-icon">🔍</span>
+                <span class="sidebar-item-text">痕跡</span>
+            </div>
+            <div class="sidebar-item" data-tab="pca" onclick="switchTab('pca', this)">
+                <span class="sidebar-item-icon">📜</span>
+                <span class="sidebar-item-text">PCA実行履歴</span>
+            </div>
+            <div class="sidebar-item" data-tab="ads" onclick="switchTab('ads', this)">
+                <span class="sidebar-item-icon">📥</span>
+                <span class="sidebar-item-text">ダウンロード元</span>
+            </div>
+            <div class="sidebar-item" data-tab="wsl" onclick="switchTab('wsl', this)">
+                <span class="sidebar-item-icon">🐧</span>
+                <span class="sidebar-item-text">WSL検知</span>
+            </div>
+
+            <div class="sidebar-item" data-tab="cam" onclick="switchTab('cam', this)">
+                <span class="sidebar-item-icon">📦</span>
+                <span class="sidebar-item-text">CAM DB</span>
+            </div>
+            <div class="sidebar-item" data-tab="srum" onclick="switchTab('srum', this)">
+                <span class="sidebar-item-icon">📊</span>
+                <span class="sidebar-item-text">SRUM解析</span>
+            </div>
+            <div class="sidebar-item" data-tab="recall" onclick="switchTab('recall', this)">
+                <span class="sidebar-item-icon">🤖</span>
+                <span class="sidebar-item-text">Recall検知</span>
+            </div>
+
+            <div class="sidebar-divider"></div>
+            <div class="sidebar-section-label">管理</div>
+            <div class="sidebar-item" data-tab="important" onclick="switchTab('important', this)">
+                <span class="sidebar-item-icon">⭐</span>
+                <span class="sidebar-item-text">重要</span>
+                <span class="sidebar-item-badge" id="important-count" style="display:none;">0</span>
+            </div>
+            <div class="sidebar-item" data-tab="history" onclick="switchTab('history', this)">
+                <span class="sidebar-item-icon">💾</span>
+                <span class="sidebar-item-text">履歴</span>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="sidebar-toggle-btn" onclick="toggleSidebar()">
+                <span id="sidebar-toggle-icon">◀</span>
+                <span class="sidebar-toggle-text">折りたたむ</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- ===== メインコンテンツ ===== -->
+    <div class="main-content" id="main-content" role="main" aria-label="解析結果">
+
+        <!-- ステータスバー -->
+        <div class="status-bar" role="status" aria-live="polite">
+            <div>
+                <span class="status-bar-title">🐟 Sacabambaspis v3.1</span>
+                <span class="cell-sub"> | Host: <span id="host-display">...</span></span>
+            </div>
+            <div class="status-bar-info">
+                <span id="count-display"></span>
+                <span id="alert-display">システム正常</span>
+                
+            <!-- P15: 脅威サマリー表示 -->
+            <div class="threat-score-bar" id="threat-score-bar" style="display:none;">
+                <span class="threat-count-danger" id="threat-count-danger">DANGER: 0</span>
+                <span class="threat-count-warning" id="threat-count-warning">WARNING: 0</span>
+                <span class="threat-count-total" id="threat-count-total">全 0 件</span>
+                <span class="threat-level-badge" id="threat-level-badge">--</span>
+                <button class="threat-detail-btn" onclick="toggleThreatDetail()" data-tooltip="検知サマリー詳細">📊</button>
+            </div>
+            <button class="header-settings-btn" onclick="toggleSettings()" title="表示設定">🎨</button>
+            </div>
+        </div>
+
+        <div class="content-wrapper">
+
+            <!-- コントロールバー -->
+            <div class="controls-bar">
+                <input type="text" id="id-filter" class="search-input" placeholder="検索 (ID/名前)" onkeyup="filterAll()">
+                <button id="btn-hide-safe" class="filter-btn" onclick="toggleHideSafeFilter()">🟢 正常を非表示 (OFF)</button>
+                <button id="btn-warning" class="filter-btn" onclick="toggleWarningFilter()">🟡 警告のみ (OFF)</button>
+                <button id="btn-danger" class="filter-btn" onclick="toggleDangerFilter()">🔴 危険のみ (OFF)</button>
+                <button id="btn-self" class="filter-btn" onclick="toggleSelfFilter()">🐟 自己除外 (OFF)</button>
+            </div>
+
+
+
+            <!-- ===== タイムラインタブ ===== -->
+            <div id="tab-timeline" class="card active">
+                <div class="graph-header">
+                    <div class="graph-controls">
+                        <span class="graph-title">📅 アクティビティ・ヒストグラム</span>
+                        <button class="filter-btn" style="padding:2px 8px;font-size:0.8rem;" onclick="resetZoom()">リセット</button>
+                    </div>
+                    <div class="cell-sub">ドラッグで期間選択 / ダブルクリックでリセット</div>
+                </div>
+                <div id="timeline-container">
+                    <canvas id="timeline-canvas"></canvas>
+                    <div id="selection-info"></div>
+                </div>
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: 時系列分析</span>
+                    ・タイムライン上でイベントの発生順序を確認してください。<br>
+                    ・各列には、カテゴリ・対象・検知理由が分かれて表示されます。
+                </div>
+
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >Date/Time</th>
+                            <th >Category</th>
+                            <th >Type/ID</th>
+                            <th>Target</th>
+                            <th >Reason</th>
+                            <th >判定</th>
+                        </tr></thead>
+                        <tbody id="list-timeline"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== イベントログタブ ===== -->
+            <div id="tab-logs" aria-label="イベントログ解析結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: イベントログ（13種のイベントID監視）</span>
+                    <b>🔴 DANGER:</b> ログ消去(1102) / 異常終了(41) / サービス登録(7045) / PowerShell(4104)<br>
+                    <b>🟡 WARNING:</b> ログオン失敗(4625) / 管理者権限(4672) / アプリクラッシュ(1000)<br>
+                    <b>ℹ INFO:</b> ログオン成功(4624) / プロセス作成(4688) / 起動(6005) / シャットダウン(6006) / インストール(11707) / 削除(11724)<br>
+                    <b>動的解析:</b> メッセージ内容からMimikatz等の危険キーワード、不審なサービスパス、Base64コマンドを自動検知します。<br>
+                    各イベントの「Desc」列をクリックすると、<b>なぜ危険か・次に何を調べるべきか</b>の詳細解説が表示されます。
+                </div>
+
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >ID</th>
+                            <th >Time</th>
+                            <th >Log</th>
+                            <th >Desc</th>
+                            <th>Message</th>
+                            <th >判定</th>
+                        </tr></thead>
+                        <tbody id="list-logs"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== プロセスタブ ===== -->
+            <div id="tab-proc" aria-label="プロセス解析結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: プロセス解析（5つの判別ルール）</span>
+                    このタブでは、現在実行中の全プロセスを5つの観点で自動判別しています。<br><br>
+                    <b>① 正規パス偽装 (Masquerading):</b> svchost.exe等がSystem32以外にある場合を検知<br>
+                    <b>② ファイル名偽装 (Typosquatting):</b> 正規名と1-2文字異なるプロセスを検知<br>
+                    <b>③ 親子関係の異常:</b> 想定外の親プロセスからの起動を検知<br>
+                    <b>④ 不審フォルダからの実行:</b> Temp, Users\Public等からの起動を検知<br>
+                    <b>⑤ コマンドライン解析:</b> Base64エンコードや外部ダウンロード系を検知
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >PID</th>
+                            <th >Name</th>
+                            <th >Parent</th>
+                            <th>Path</th>
+                            <th >Reason</th>
+                            <th >DNA</th>
+                            <th >Start Time</th>
+                            <th >判定</th>
+                        </tr></thead>
+                        <tbody id="list-proc"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== メモリタブ ===== -->
+            <div id="tab-memory" aria-label="メモリ領域解析結果" class="card">
+                <div class="guide-box guide-box-danger">
+                    <span class="guide-title">🎓 解析官メモ: メモリ領域解析</span>
+                    <b>🔴 危険:RWX（匿名メモリ）:</b> ファイルレス攻撃で使用。最も警戒すべきサイン。<br>
+                    <b>🟡 JIT:</b> Chrome/Edge/Node.js等のJSエンジンが正常動作で使用するRWX領域。<br>
+                    <b>🟢 正常:</b> RWX領域が検出されなかったプロセス。<br>
+                    <b>権限の見方:</b> RWX=読書実行, RW=読書, RX=読実行。RWXが0なら健全。
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >PID</th>
+                            <th >Process</th>
+                            <th >Address</th>
+                            <th >Regions</th>
+                            <th >Permissions</th>
+                            <th >Type</th>
+                            <th>解説</th>
+                        </tr></thead>
+                        <tbody id="list-memory"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== 永続化タブ ===== -->
+            <div id="tab-persist" aria-label="永続化検知結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: 永続化 (タスクスケジューラ / レジストリRun / WMI)</span>
+                    <b>タスクスケジューラ:</b> SYSTEM権限で定期実行。攻撃者の永続化手法として最も多用されます。<br>
+                    <b>レジストリRun:</b> ログオン時に自動実行。HKLM/HKCUの4つのRunキーを検査します。<br>
+                    <b>WMI:</b> ファイルレスの高度な永続化。APT攻撃で使用されます。<br>
+                    <b>判別ロジック:</b> ① 攻撃ツール検知 ② LOLBin+不審引数(-enc, -hidden等) ③ LOLBin+不審パス(Temp等) ④ 不審パス単体 ⑤ 正常<br>
+                    <span style="color:var(--accent-error);">🔴 LOLBin+Base64引数の組み合わせはファイルレス攻撃の典型パターンです。</span>
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >Type</th>
+                            <th >Name</th>
+                            <th>Command</th>
+                            <th >Reason</th>
+                            <th >判定</th>
+                        </tr></thead>
+                        <tbody id="list-persist"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== ネットワークタブ ===== -->
+                <div id="tab-network" aria-label="ネットワーク深層解析結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: ネットワーク深層解析（8つの検知ルール）</span>
+                    このタブでは全ネットワーク接続を8つの観点で自動判別しています。<br><br>
+                    <b>① 攻撃ツール通信:</b> 既知の攻撃ツール(mimikatz等)のネットワーク使用を検知<br>
+                    <b>② LOLBins外部通信:</b> PowerShell/CMD等の管理ツールが外部IPと通信<br>
+                    <b>③ 危険ポート:</b> C2/バックドアで頻用されるポートへの接続<br>
+                    <b>④ 非標準ポート:</b> 一般的でないポートでの外部ESTABLISHED接続<br>
+                    <b>⑤ ビーコニング:</b> 同一リモートIPへの複数接続（C2コールバックの特徴）<br>
+                    <b>⑥ 大量接続:</b> 1プロセスからの異常な接続数<br>
+                    <b>⑦ アカウント異常:</b> システムプロセスが通常と異なるユーザーで実行<br>
+                    <b>⑧ 未署名プロセス:</b> デジタル署名のないプロセスが外部と通信
+                </div>
+
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th>☑</th>
+                            <th>Proto</th>
+                            <th>Local</th>
+                            <th>Remote</th>
+                            <th>逆引きDNS</th>
+                            <th>State</th>
+                            <th>Process</th>
+                            <th>User</th>
+                            <th>署名</th>
+                            <th>接続数</th>
+                            <th>Reason</th>
+                            <th>判定</th>
+                        </tr></thead>
+
+                        <tbody id="list-network"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== 痕跡タブ ===== -->
+            <div id="tab-evidence" aria-label="実行痕跡解析結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: 実行痕跡 (Evidence)</span>
+                    <b>UserAssist:</b> エクスプローラ経由で実行されたプログラムの履歴（ROT13エンコード）。ファイルが削除されていても実行記録が残ります。<br>
+                    <b>Prefetch:</b> プログラム実行時にOSが自動作成するキャッシュ。攻撃ツールのPrefetchが存在すれば過去に実行された証拠です。<br>
+                    <b>5つの判別ルール:</b> ① 攻撃ツール検知 ② LOLBin実行 ③ 偵察コマンド ④ 不審パスからの実行 ⑤ 正常判定<br>
+                    <span style="color:var(--accent-warning);">⚠ Prefetchの取得には管理者権限が必要です。</span>
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >Source</th>
+                            <th>Artifact</th>
+                            <th >Time</th>
+                        </tr></thead>
+                        <tbody id="list-evidence"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== PCAタブ ===== -->
+            <div id="tab-pca" aria-label="PCA実行履歴" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: PCA実行履歴（Program Compatibility Assistant）</span>
+                    Windows 11 22H2以降で追加されたプログラム互換性アシスタントのログです。<br>
+                    ファイルが削除されていても「実行された事実」がこのログに残ります。<br>
+                    <span style="color:var(--accent-error);">削除済みの攻撃ツールが見つかった場合、侵害の強い証拠です。</span>
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >Source</th>
+                            <th >ファイル名</th>
+                            <th>パス</th>
+                            <th >Reason</th>
+                            <th >ファイル状態</th>
+                            <th >タイムスタンプ</th>
+                            <th >判定</th>
+                        </tr></thead>
+                        <tbody id="list-pca"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== ADSタブ ===== -->
+            <div id="tab-ads" aria-label="ADS解析結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: ダウンロード元追跡（Zone.Identifier）</span>
+                    Windowsはインターネットからダウンロードしたファイルに「出所情報」を記録します。<br>
+                    <b>🔴 危険:</b> 実行ファイル(.exe/.dll/.ps1等)がインターネットからダウンロード<br>
+                    <b>🟡 警告:</b> アーカイブ(.zip/.iso)やOfficeファイルがインターネットからダウンロード<br>
+                    <b>🟢 正常:</b> ローカルまたはイントラネットのファイル
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >ファイル名</th>
+                            <th >Zone</th>
+                            <th>DL元</th>
+                            <th >参照元</th>
+                            <th >Reason</th>
+                            <th >サイズ</th>
+                            <th >更新日時</th>
+                            <th >判定</th>
+                        </tr></thead>
+                        <tbody id="list-ads"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== WSLタブ ===== -->
+            <div id="tab-wsl" aria-label="WSL環境検査結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: WSL環境検査（Windows Subsystem for Linux）</span>
+                    攻撃者はWSL内にマルウェアを配置し、Windows側のアンチウイルスを回避します。<br>
+                    WSLのファイルシステム(ext4.vhdx)は通常のWindowsツールでは見えません。<br>
+                    bash_history内の不審コマンド（curl/wget/nc等）に注意してください。
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >検査項目</th>
+                            <th >検出内容</th>
+                            <th>詳細</th>
+                            <th >Reason</th>
+                            <th >タイムスタンプ</th>
+                            <th >判定</th>
+                        </tr></thead>
+                        <tbody id="list-wsl"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== CAM DBタブ ===== -->
+            <div id="tab-cam" aria-label="CAM DB解析結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: CAM DB（Program Compatibility Assistant DB）</span>
+                    PcaGeneralDb はプログラム互換性アシスタントのSQLiteデータベースです。<br>
+                    PCA実行履歴(PcaAppLaunchDic.txt)よりも詳細な情報（実行回数、終了コード等）が記録されています。<br>
+                    <span style="color:var(--accent-error);">攻撃者が削除したツールの実行記録がここに残っている場合があります。</span>
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th>☑</th>
+                            <th>Source</th>
+                            <th>プログラム名</th>
+                            <th>パス</th>
+                            <th>実行日時</th>
+                            <th>実行回数</th>
+                            <th>終了コード</th>
+                            <th>ファイル状態</th>
+                            <th>Reason</th>
+                            <th>判定</th>
+                        </tr></thead>
+                        <tbody id="list-cam"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== SRUMタブ ===== -->
+            <div id="tab-srum" aria-label="SRUM解析結果" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎓 解析官メモ: SRUM（System Resource Usage Monitor）</span>
+                    SRUDBはアプリのネットワーク使用量・CPU時間・実行ユーザーを最大30日間記録します。<br>
+                    ESEデータベースのため直接読込は困難ですが、メタデータとnetstat推定で異常を検知します。<br>
+                    <b>詳細解析が必要な場合:</b> srum-dump や SrumECmd 等の専用ツールを使用してください。
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th>☑</th>
+                            <th>Source</th>
+                            <th>アプリ名</th>
+                            <th>詳細</th>
+                            <th>送信量</th>
+                            <th>受信量</th>
+                            <th>CPU時間</th>
+                            <th>ユーザーSID</th>
+                            <th>Reason</th>
+                            <th>タイムスタンプ</th>
+                            <th>判定</th>
+                        </tr></thead>
+                        <tbody id="list-srum"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== Recallタブ ===== -->
+            <div id="tab-recall" aria-label="Windows Recall検査結果" class="card">
+                <div class="guide-box guide-box-danger">
+                    <span class="guide-title">🎓 解析官メモ: Windows Recall（AIスクリーンショット）</span>
+                    Windows 11 24H2のCopilot+ PCに搭載されたRecall機能の検知結果です。<br>
+                    Recallは定期的にスクリーンショットを取得し、AIで検索可能にする機能です。<br>
+                    <b>🔴 リスク:</b> パスワード入力画面、機密文書、個人情報が記録される可能性があります。<br>
+                    <b>🔴 攻撃悪用:</b> 攻撃者がRecall DBを窃取すると、被害者の行動を全て把握できます。
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th>☑</th>
+                            <th>検査項目</th>
+                            <th>検出内容</th>
+                            <th>詳細</th>
+                            <th>Reason</th>
+                            <th>タイムスタンプ</th>
+                            <th>判定</th>
+                        </tr></thead>
+                        <tbody id="list-recall"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== 重要タブ ===== -->
+            <div id="tab-important" aria-label="重要アーティファクト一覧" class="card">
+                <div class="guide-box" style="border-left-color: var(--accent-error);">
+                    <span class="guide-title" style="color: var(--accent-error);">⭐ 重要アーティファクト一覧</span>
+                    各タブで「☑」にチェックを入れたアーティファクトがここに集約されます。<br>
+                    チェックを外すと一覧から削除されます。レポート作成時の要注目項目管理にご活用ください。
+                </div>
+
+                <div class="controls-bar" style="padding:8px 12px;">
+                    <button class="filter-btn" onclick="bulkRegisterImportant()" style="border-color:var(--accent-error);color:var(--accent-error);">⚠️ 危険/警告を一括登録</button>
+                    <button class="filter-btn" onclick="clearAllImportant()">🗑️ 全解除</button>
+                    <span id="important-bulk-status" class="cell-sub" style="margin-left:10px;"></span>
+                </div>
+
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th >☑</th>
+                            <th >カテゴリ</th>
+                            <th >名前/ID</th>
+                            <th>Reason</th>
+                            <th >Time</th>
+                            <th >判定</th>
+                            <th >操作</th>
+                        </tr></thead>
+
+                        <tbody id="list-important"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== 履歴タブ ===== -->
+            <div id="tab-history" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">💾 調査レポート管理</span>
+                    ・<b>「読込」</b>: 過去のスキャンデータを復元して表示します。<br>
+                    ・<b>「削除」</b>: 不要になったログファイルをディスクから削除します。<br>
+                    ・ログは <code>logs</code> フォルダに保存されています。
+                </div>
+                <div style="padding:10px;">
+                    <button class="load-btn" onclick="loadHistoryList()" style="background:var(--bg-tertiary);color:var(--text-secondary);">🔄 リスト更新</button>
+                </div>
+                <div class="data-table-wrapper" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th>スキャン日時</th>
+                            <th>ホスト名</th>
+                            <th >検知数</th>
+                            <th>ファイル名</th>
+                            <th >操作</th>
+                        </tr></thead>
+                        <tbody id="list-history"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div><!-- /content-wrapper -->
+    </div><!-- /main-content -->
+</div><!-- /app-layout -->
+
+<!-- 詳細モーダル -->
+<div class="detail-modal-overlay" role="dialog" aria-modal="true" aria-label="アーティファクト詳細" id="detail-modal-overlay" onclick="if(event.target===this)closeDetailModal()">
+    <div class="detail-modal">
+        <div class="detail-modal-header">
+            <span class="detail-modal-title">⭐ アーティファクト詳細</span>
+            <button class="detail-modal-close" onclick="closeDetailModal()">✕</button>
+        </div>
+        <div class="detail-modal-body" id="detail-modal-body">
+        </div>
+    </div>
+</div>
+
+
+<!-- P19: Decision Tree モーダル -->
+<div class="decision-tree-overlay" id="decision-tree-overlay" role="dialog" aria-modal="true" aria-label="判定フロー" onclick="if(event.target===this)closeDecisionTree()">
+    <div class="decision-tree-modal">
+        <div class="decision-tree-header">
+            <span class="decision-tree-title" id="decision-tree-title">🌳 判定フロー</span>
+            <button class="decision-tree-close" onclick="closeDecisionTree()">✕</button>
+        </div>
+        <div class="decision-tree-body" id="decision-tree-body"></div>
+    </div>
+</div>
+
+
+<script>
+/* ============================================
+   Sacabambaspis v3.1 - JavaScript
+   ============================================ */
+
+/* --- グローバル変数 --- */
+let allData = null;
+let timelineItems = [];
+let hideSafeFilter = false;
+let warningFilter = false;
+let dangerFilter = false;
+let selfFilter = false;
+let importantItems = new Map();
+let canvas, ctx;
+let buckets = [];
+let selection = { start: null, end: null, active: false };
+let timeRange = { min: 0, max: 0 };
+const PADDING = { top: 20, right: 30, bottom: 30, left: 60 };
+const CAT_CONFIG = {
+    'EventLog': { label: 'System', class: 'tag-sys' },
+    'Process':  { label: 'Process', class: 'tag-file' },
+    'Evidence': { label: 'Artifact', class: 'tag-evid' },
+    'Network':  { label: 'Network', class: 'tag-net' },
+    'Persistence': { label: 'Startup', class: 'tag-dang' }
+};
+
+/* --- 初期化 --- */
+document.addEventListener('DOMContentLoaded', () => {
+    loadImportantFromStorage();
+    fetch('/api/data').then(r => r.json()).then(data => {
+        updateDashboard(data);
+        updateThreatDisplay(data);
+        initGraph();
+        loadHistoryList();
+    });
+});
+
+/* --- サイドバー制御 --- */
+function toggleSidebar() {
+    document.body.classList.toggle('sidebar-collapsed');
+    const icon = document.getElementById('sidebar-toggle-icon');
+    icon.textContent = document.body.classList.contains('sidebar-collapsed') ? '▶' : '◀';
+}
+
+function switchTab(id, el) {
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    if (el) el.classList.add('active');
+    if (id === 'timeline') {
+        setTimeout(() => {
+            if (canvas && canvas.parentElement) {
+                canvas.width = canvas.parentElement.clientWidth;
+                canvas.height = canvas.parentElement.clientHeight;
+                drawGraph();
+            }
+        }, 10);
+    }
+    if (id === 'important') {
+        renderImportantTab();
+    }
+}
+
+/* --- ダッシュボード更新 --- */
+function updateDashboard(data) {
+    allData = data;
+    var scanKey = data.system.hostname + '_' + data.system.scan_time;
+    var prevKey = localStorage.getItem('saca-last-scan-key');
+    if (prevKey !== scanKey) {
+        importantItems.clear();
+        saveImportantToStorage();
+        updateImportantBadge();
+    }
+    localStorage.setItem('saca-last-scan-key', scanKey);
+    document.getElementById('host-display').textContent = data.system.hostname + ' (' + data.system.scan_time + ')';
+
+    const alertEl = document.getElementById('alert-display');
+    if (data.system.red_flags > 0) {
+        alertEl.innerHTML = '<span class="badge badge-threat">Threats: ' + data.system.red_flags + '</span>';
+    } else {
+        alertEl.innerHTML = 'システム正常';
+    }
+    processData();
+    renderAll();
+    setTimeout(() => {
+        if (canvas && canvas.parentElement) {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            drawGraph();
+        }
+    }, 100);
+}
+
+/* --- 重要アイテム管理 --- */
+function getItemKey(tab, item) {
+    switch (tab) {
+        case 'proc':    return 'proc_' + item.pid;
+        case 'memory':  return 'mem_' + item.pid + '_' + (item.address || '');
+        case 'logs':    return 'logs_' + item.id + '_' + (item.time || '');
+        case 'persist': return 'persist_' + (item.name || item.entry || '');
+        case 'network': return 'net_' + (item.local || '') + '_' + (item.remote || '');
+        case 'evidence': return 'evid_' + (item.artifact || '');
+        case 'pca':     return 'pca_' + (item.artifact || '');
+        case 'ads':     return 'ads_' + (item.artifact || '');
+        case 'wsl':     return 'wsl_' + (item.artifact || '');
+        case 'cam':     return 'cam_' + (item.program_name || '') + '_' + (item.exe_path || '');
+        case 'srum':    return 'srum_' + (item.app_name || '') + '_' + (item.source || '');
+        case 'recall':  return 'recall_' + (item.artifact || '') + '_' + (item.source || '');
+        case 'timeline': return 'tl_' + (item.cat || '') + '_' + item.id + '_' + item.ts;
+        default:        return 'unknown_' + Math.random();
+    }
+}
+
+function toggleImportant(tab, itemKey, item) {
+    if (importantItems.has(itemKey)) {
+        importantItems.delete(itemKey);
+    } else {
+        importantItems.set(itemKey, { tab: tab, key: itemKey, data: item });
+    }
+    saveImportantToStorage();
+    updateImportantBadge();
+    renderAll();
+}
+
+function isImportant(itemKey) {
+    return importantItems.has(itemKey);
+}
+
+function saveImportantToStorage() {
+    const arr = [];
+    importantItems.forEach((val, key) => { arr.push({ k: key, v: val }); });
+    localStorage.setItem('saca-important-items', JSON.stringify(arr));
+}
+
+function loadImportantFromStorage() {
+    const saved = localStorage.getItem('saca-important-items');
+    if (saved) {
+        try {
+            const arr = JSON.parse(saved);
+            importantItems = new Map();
+            arr.forEach(entry => { importantItems.set(entry.k, entry.v); });
+        } catch (e) {
+            importantItems = new Map();
+        }
+    }
+}
+
+function updateImportantBadge() {
+    const badge = document.getElementById('important-count');
+    var count = 0;
+    importantItems.forEach(function(entry) {
+        var d = entry.data;
+        var status = d.status || 'INFO';
+        if (selfFilter && d.is_self) return;
+        if (dangerFilter && status !== 'DANGER') return;
+        if (warningFilter && status !== 'WARNING') return;
+        if (hideSafeFilter && (status === 'SAFE' || status === 'INFO')) return;
+        count++;
+    });
+    if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+var _impDataList = [];
+function importantCheckbox(tab, itemKey, item) {
+    var checked = isImportant(itemKey) ? ' checked' : '';
+    var idx = _impDataList.length;
+    _impDataList.push({ tab: tab, key: itemKey, data: item });
+    return '<input type="checkbox" class="important-checkbox"' + checked + ' onclick="onImpCheck(' + idx + ')">';
+}
+
+function onImpCheck(idx) {
+    var entry = _impDataList[idx];
+    if (!entry) return;
+    toggleImportant(entry.tab, entry.key, entry.data);
+    var activeTab = document.querySelector('.card.active');
+    if (activeTab && activeTab.id === 'tab-important') {
+        renderImportantTab();
+    }
+}
+
+
+
+
+
+function renderImportantTab() {
+    var el = document.getElementById('list-important');
+    if (importantItems.size === 0) {
+        el.innerHTML = '<tr class="empty-row"><td colspan="7">重要アーティファクトはまだ登録されていません</td></tr>';
+        updateImportantFilteredCount(0);
+        return;
+    }
+    var html = '';
+    var visibleCount = 0;
+    importantItems.forEach(function(entry, key) {
+        var d = entry.data;
+        var tab = entry.tab;
+        var status = d.status || 'INFO';
+
+        // フィルタ適用
+        if (selfFilter && d.is_self) return;
+        if (dangerFilter && status !== 'DANGER') return;
+        if (warningFilter && status !== 'WARNING') return;
+        if (hideSafeFilter && (status === 'SAFE' || status === 'INFO')) return;
+
+        visibleCount++;
+        var tabLabel = getTabLabel(tab);
+        var name = d.name || d.exe_name || d.artifact || d.program_name || d.app_name || d.process || d.id || d.pid || '-';
+        var reason = d.reason || d.desc || '';
+        var time = d.time || d.timestamp || '';
+        var idx = _impDataList.length;
+        _impDataList.push({ tab: tab, key: key, data: d });
+        var checked = isImportant(key) ? ' checked' : '';
+        html += '<tr class="row-important">';
+        html += '<td><input type="checkbox" class="important-checkbox"' + checked + ' onclick="onImpCheck(' + idx + ')"></td>';
+        html += '<td><span class="tag tag-evid">' + tabLabel + '</span></td>';
+        html += '<td>' + name + '</td>';
+        html += '<td class="cell-reason">' + (reason ? '⚠️ ' + reason : '') + '</td>';
+        html += '<td>' + time + '</td>';
+        html += '<td class="' + cls(status) + '">' + statusJP(status) + '</td>';
+        html += '<td><button class="detail-btn" onclick="openDetailModal(\'' + tab + '\', ' + idx + ')">📋 詳細</button></td>';
+        html += '</tr>';
+    });
+    if (visibleCount === 0) {
+        el.innerHTML = '<tr class="empty-row"><td colspan="7">フィルタ条件に一致する重要アーティファクトはありません</td></tr>';
+    } else {
+        el.innerHTML = html;
+    }
+    updateImportantFilteredCount(visibleCount);
+}
+
+function updateImportantFilteredCount(count) {
+    var badge = document.getElementById('important-count');
+    if (badge) {
+        badge.textContent = count;
+        badge.style.display = count > 0 ? '' : 'none';
+    }
+}
+
+
+
+function getTabLabel(tab) {
+    const map = { proc:'プロセス', memory:'メモリ', logs:'ログ', persist:'永続化', network:'通信', evidence:'痕跡', pca:'PCA', ads:'ADS', wsl:'WSL', cam:'CAM DB', srum:'SRUM', recall:'Recall', timeline:'TL' };
+    return map[tab] || tab;
+}
+
+/* --- 履歴機能 --- */
+function loadHistoryList() {
+    fetch('/api/history/list').then(r => r.json()).then(list => {
+        const tbody = document.getElementById('list-history');
+        if (list.length === 0) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="5">保存された履歴はありません</td></tr>';
+            return;
+        }
+        tbody.innerHTML = list.map(item =>
+            '<tr>' +
+            '<td>' + item.scan_time + '</td>' +
+            '<td>' + item.hostname + '</td>' +
+            '<td><span style="font-weight:bold;color:' + (item.red_flags > 0 ? 'var(--accent-error)' : 'var(--accent-success)') + '">' + item.red_flags + '</span></td>' +
+            '<td>' + item.filename + '</td>' +
+            '<td><button class="load-btn" onclick="loadReport(\'' + item.filename + '\')">📂 読込</button><button class="del-btn" onclick="deleteReport(\'' + item.filename + '\')">🗑️ 削除</button></td>' +
+            '</tr>'
+        ).join('');
+    });
+}
+
+function loadReport(filename) {
+    if (!confirm('現在の表示内容を上書きして、過去のデータを読み込みますか？')) return;
+    fetch('/api/history/load/' + filename).then(r => r.json()).then(res => {
+        if (res.status === 'ok') {
+            fetch('/api/data').then(r => r.json()).then(data => {
+                updateDashboard(data);
+                updateThreatDisplay(data);
+                alert('読込完了: ' + filename);
+                switchTab('timeline', document.querySelector('[data-tab="timeline"]'));
+            });
+        } else {
+            alert('エラー: ' + res.message);
+        }
+    });
+}
+
+function deleteReport(filename) {
+    if (!confirm('削除しますか？\n' + filename)) return;
+    fetch('/api/history/delete/' + filename).then(r => r.json()).then(res => {
+        if (res.status === 'ok') loadHistoryList();
+        else alert('削除失敗: ' + res.message);
+    });
+}
+
+/* --- データ加工 --- */
+function processData() {
+    timelineItems = [];
+    const parse = (t) => t ? new Date(t).getTime() : 0;
+
+    allData.eventlogs.forEach(e => {
+        timelineItems.push({ ts: parse(e.time), cat: 'EventLog', id: e.id, target: e.desc, reason: e.message, status: e.status, is_self: e.is_self, _src: e });
+    });
+
+    allData.evidence.forEach(e => {
+        timelineItems.push({ ts: parse(e.timestamp), cat: 'Evidence', id: '-', target: e.artifact, reason: 'Source: ' + e.source, status: 'INFO', is_self: false, _src: e });
+    });
+
+    allData.processes.forEach(p => {
+        timelineItems.push({ ts: parse(p.time), cat: 'Process', id: p.pid, target: p.name + (p.is_self ? ' [自己]' : ''), reason: p.reason || '', status: p.status, is_self: p.is_self, _src: p });
+    });
+
+    const now = Date.now();
+    allData.networks.forEach(n => {
+        timelineItems.push({ ts: now, cat: 'Network', id: n.protocol, target: n.remote + ' -> ' + n.local, reason: n.desc || '', status: n.status, is_self: n.is_self, _src: n });
+    });
+
+    if (allData.pca) allData.pca.forEach(p => {
+        timelineItems.push({ ts: parse(p.timestamp), cat: 'Evidence', id: 'PCA', target: p.exe_name || p.artifact, reason: p.reason || '', status: p.status, is_self: false, _src: p });
+    });
+
+    if (allData.ads) allData.ads.forEach(a => {
+        timelineItems.push({ ts: parse(a.timestamp), cat: 'Evidence', id: 'ADS', target: a.artifact, reason: a.reason || '', status: a.status, is_self: false, _src: a });
+    });
+
+    if (allData.wsl) allData.wsl.forEach(w => {
+        timelineItems.push({ ts: parse(w.timestamp), cat: 'Evidence', id: 'WSL', target: w.artifact, reason: w.reason || '', status: w.status, is_self: false, _src: w });
+    });
+
+    // CAM DB
+    if (allData.cam) allData.cam.forEach(c => {
+        timelineItems.push({ ts: parse(c.timestamp), cat: 'Evidence', id: 'CAM', target: c.program_name || c.exe_path, reason: c.reason || '', status: c.status, is_self: false, _src: c });
+    });
+
+    // SRUM
+    if (allData.srum) allData.srum.forEach(s => {
+        timelineItems.push({ ts: parse(s.timestamp), cat: 'Evidence', id: 'SRUM', target: s.app_name, reason: s.reason || '', status: s.status, is_self: false, _src: s });
+    });
+
+    // Recall
+    if (allData.recall) allData.recall.forEach(r => {
+        timelineItems.push({ ts: parse(r.timestamp), cat: 'Evidence', id: 'Recall', target: r.artifact, reason: r.reason || '', status: r.status, is_self: false, _src: r });
+    });
+
+    timelineItems = timelineItems.filter(i => i.ts > 0).sort((a, b) => b.ts - a.ts);
+    if (timelineItems.length > 0) {
+        timeRange.max = timelineItems[0].ts;
+        timeRange.min = timelineItems[timelineItems.length - 1].ts;
+        if (timeRange.max === timeRange.min) {
+            timeRange.min -= 3600000;
+            timeRange.max += 3600000;
+        }
+    }
+    createBuckets();
+}
+
+/* --- テーブル描画 --- */
+function renderAll() {
+    _impDataList = [];
+    renderTimeline(timelineItems);
+    renderTables('');
+    updateCounts();
+    updateImportantBadge();
+}
+
+
+function renderTimeline(items) {
+    const el = document.getElementById('list-timeline');
+    if (items.length === 0) {
+        el.innerHTML = '<tr class="empty-row"><td colspan="7">該当データなし</td></tr>';
+        return;
+    }
+    const display = items.slice(0, 1000);
+    el.innerHTML = display.map(i => {
+        const conf = CAT_CONFIG[i.cat] || { label: 'Other', class: 'tag-sys' };
+        const key = getItemKey('timeline', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        let rowClass = i.is_self ? 'row-self' : (i.status === 'DANGER' ? 'row-danger' : (i.status === 'WARNING' ? 'row-warning' : ''));
+        if (impClass) rowClass = 'row-important';
+        return '<tr class="' + rowClass + '">' +
+            '<td>' + importantCheckbox('timeline', key, i._src || i) + '</td>' +
+            '<td>' + formatDate(i.ts) + '</td>' +
+            '<td><span class="tag ' + conf.class + '">' + conf.label + '</span></td>' +
+            '<td>' + i.id + '</td>' +
+            '<td>' + (i.target || '') + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + (i.status === 'DANGER' && !i.is_self ? ' <span style="color:var(--accent-error);font-weight:bold;">[THREAT]</span>' : '') + '</td>' +
+            '</tr>';
+    }).join('');
+}
+
+function renderTables(keyword) {
+    /* イベントログ */
+    renderTableGeneric('list-logs', allData.eventlogs, ['id', 'message', 'desc'], keyword, 'logs', i => {
+        const key = getItemKey('logs', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('logs', key, i) + '</td>' +
+            '<td>' + i.id + '</td>' +
+            '<td>' + i.time + '</td>' +
+            '<td>' + i.log + '</td>' +
+            '<td>' + filterDescByLevel(i.desc) + (i.is_self ? ' <span class="tag-self">自己実行</span>' : '') + '</td>' +
+            '<td class="cell-sub">' + i.message + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    /* プロセス */
+    renderTableGeneric('list-proc', allData.processes, ['pid', 'name', 'path', 'parent'], keyword, 'proc', i => {
+        const key = getItemKey('proc', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        const dnaText = i.dna ? i.dna.entropy + ' (' + i.dna.verdict + ')' : '-';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('proc', key, i) + '</td>' +
+            '<td>' + i.pid + '</td>' +
+            '<td class="' + cls(i.status) + '">' + i.name + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
+            '<td class="cell-sub">' + (i.parent || '-') + '</td>' +
+            '<td class="cell-sub">' + i.path + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-sub">' + dnaText + '</td>' +
+            '<td>' + i.time + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    /* メモリ */
+    renderTableGeneric('list-memory', allData.memory, ['pid', 'name', 'type'], keyword, 'memory', i => {
+        const key = getItemKey('memory', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        let typeTag;
+        if (i.type === 'RWX') typeTag = '<span class="badge badge-threat">危険:RWX</span>';
+        else if (i.type === 'JIT-RWX') typeTag = '<span class="badge" style="background:var(--accent-warning);color:#0a1628;">JIT</span>';
+        else typeTag = '<span class="badge" style="background:var(--accent-success);color:#0a1628;">正常</span>';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('memory', key, i) + '</td>' +
+            '<td>' + i.pid + '</td>' +
+            '<td>' + i.name + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
+            '<td class="cell-sub">' + i.address + '</td>' +
+            '<td>' + i.size + '</td>' +
+            '<td class="cell-sub">' + (i.perms_summary || '') + '</td>' +
+            '<td>' + typeTag + '</td>' +
+            '<td class="cell-desc">' + filterDescByLevel(i.desc) + '</td>'
+        };
+    });
+
+    /* 永続化 */
+    renderTableGeneric('list-persist', allData.persistence, ['name', 'command'], keyword, 'persist', i => {
+        const key = getItemKey('persist', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('persist', key, i) + '</td>' +
+            '<td>' + i.type + '</td>' +
+            '<td>' + (i.name || i.entry) + '</td>' +
+            '<td class="cell-sub" style="word-break:break-all;">' + (i.command || i.value) + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    /* ネットワーク */
+    renderTableGeneric('list-network', allData.networks, ['local', 'remote', 'process', 'rdns', 'user'], keyword, 'network', i => {
+        const key = getItemKey('network', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        let sigStyle = '';
+        if (i.signature === '未署名') sigStyle = 'color:var(--accent-error);font-weight:bold;';
+        else if (i.signature === '改ざん疑い') sigStyle = 'color:var(--accent-error);font-weight:bold;';
+        else if (i.signature === '署名済み') sigStyle = 'color:var(--accent-success);';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('network', key, i) + '</td>' +
+            '<td>' + i.protocol + '</td>' +
+            '<td>' + i.local + '</td>' +
+            '<td>' + i.remote + '</td>' +
+            '<td class="cell-sub">' + (i.rdns || '') + '</td>' +
+            '<td>' + i.state + '</td>' +
+            '<td>' + i.process + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
+            '<td class="cell-sub">' + (i.user || '') + '</td>' +
+            '<td style="' + sigStyle + '">' + (i.signature || '') + '</td>' +
+            '<td>' + (i.conn_count || '') + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+
+    /* 痕跡 */
+    renderTableGeneric('list-evidence', allData.evidence, ['artifact'], keyword, 'evidence', i => {
+        const key = getItemKey('evidence', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('evidence', key, i) + '</td>' +
+            '<td>' + i.source + '</td>' +
+            '<td>' + i.artifact + '</td>' +
+            '<td>' + i.timestamp + '</td>'
+        };
+    });
+
+    /* PCA */
+    if (allData.pca) renderTableGeneric('list-pca', allData.pca, ['artifact', 'exe_name'], keyword, 'pca', i => {
+        const key = getItemKey('pca', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        const fileStatus = i.file_exists ? '<span style="color:var(--accent-success);">存在</span>' : '<span style="color:var(--accent-error);font-weight:bold;">削除済み</span>';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('pca', key, i) + '</td>' +
+            '<td>' + i.source + '</td>' +
+            '<td class="' + cls(i.status) + '">' + (i.exe_name || '') + '</td>' +
+            '<td class="cell-sub">' + i.artifact + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td>' + fileStatus + '</td>' +
+            '<td>' + i.timestamp + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    /* ADS */
+    if (allData.ads) renderTableGeneric('list-ads', allData.ads, ['artifact', 'host_url', 'referrer_url'], keyword, 'ads', i => {
+        const key = getItemKey('ads', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('ads', key, i) + '</td>' +
+            '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
+            '<td>' + (i.zone_name || '') + '</td>' +
+            '<td class="cell-sub">' + i.host_url + '</td>' +
+            '<td class="cell-sub">' + i.referrer_url + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td>' + (i.file_size || '') + '</td>' +
+            '<td>' + i.timestamp + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    /* WSL */
+    if (allData.wsl) renderTableGeneric('list-wsl', allData.wsl, ['artifact', 'detail'], keyword, 'wsl', i => {
+        const key = getItemKey('wsl', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('wsl', key, i) + '</td>' +
+            '<td>' + i.source + '</td>' +
+            '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
+            '<td class="cell-sub">' + (i.detail ? filterDescByLevel(i.detail).replace(/\\n/g, '<br>') : '') + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td>' + i.timestamp + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+    
+    /* CAM DB */
+    if (allData.cam) renderTableGeneric('list-cam', allData.cam, ['program_name', 'exe_path'], keyword, 'cam', i => {
+        const key = getItemKey('cam', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        const fileStatus = i.file_exists ? '<span style="color:var(--accent-success);">存在</span>' : '<span style="color:var(--accent-error);font-weight:bold;">削除済み</span>';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('cam', key, i) + '</td>' +
+            '<td>' + i.source + '</td>' +
+            '<td class="' + cls(i.status) + '">' + (i.program_name || '') + '</td>' +
+            '<td class="cell-sub">' + (i.exe_path || '') + '</td>' +
+            '<td>' + (i.run_time || '') + '</td>' +
+            '<td>' + (i.run_count || 0) + '</td>' +
+            '<td>' + (i.exit_code || '') + '</td>' +
+            '<td>' + fileStatus + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    /* SRUM */
+    if (allData.srum) renderTableGeneric('list-srum', allData.srum, ['app_name', 'detail'], keyword, 'srum', i => {
+        const key = getItemKey('srum', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('srum', key, i) + '</td>' +
+            '<td>' + i.source + '</td>' +
+            '<td class="' + cls(i.status) + '">' + (i.app_name || '') + '</td>' +
+            '<td class="cell-sub">' + (i.detail || '') + '</td>' +
+            '<td>' + (i.network_sent || '') + '</td>' +
+            '<td>' + (i.network_recv || '') + '</td>' +
+            '<td>' + (i.cpu_time || '') + '</td>' +
+            '<td class="cell-sub">' + (i.user_sid || '') + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td>' + (i.timestamp || '') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    /* Recall */
+    if (allData.recall) renderTableGeneric('list-recall', allData.recall, ['artifact', 'detail'], keyword, 'recall', i => {
+        const key = getItemKey('recall', i);
+        const impClass = isImportant(key) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('recall', key, i) + '</td>' +
+            '<td>' + i.source + '</td>' +
+            '<td class="' + cls(i.status) + '">' + (i.artifact || '') + '</td>' +
+            '<td class="cell-sub">' + (i.detail || '') + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td>' + (i.timestamp || '') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+}
+
+function renderTableGeneric(id, data, keys, keyword, tab, rowFn) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let list = data;
+    if (selfFilter) list = list.filter(i => !i.is_self);
+    if (dangerFilter) list = list.filter(i => i.status === 'DANGER');
+    if (warningFilter) list = list.filter(i => i.status === 'WARNING');
+    if (hideSafeFilter) list = list.filter(i => i.status !== 'SAFE' && i.status !== 'INFO');
+    if (keyword) list = list.filter(i => keys.some(k => String(i[k]).toLowerCase().includes(keyword)));
+    if (list.length === 0) {
+        const colCount = el.closest('table').querySelectorAll('th').length;
+        el.innerHTML = '<tr class="empty-row"><td colspan="' + colCount + '">該当データなし</td></tr>';
+        return;
+    }
+    el.innerHTML = list.map(i => {
+        const result = rowFn(i);
+        let rowClass = i.is_self ? 'row-self' : (i.status === 'DANGER' ? 'row-danger' : (i.status === 'WARNING' ? 'row-warning' : ''));
+        if (result.extra && result.extra.includes('row-important')) rowClass = 'row-important';
+        return '<tr class="' + rowClass + '">' + result.html + '</tr>';
+    }).join('');
+}
+
+/* --- フィルター --- */
+function filterAll() {
+    const keyword = document.getElementById('id-filter').value.toLowerCase();
+    let items = timelineItems;
+    if (selfFilter) items = items.filter(i => !i.is_self);
+    if (dangerFilter) items = items.filter(i => i.status === 'DANGER');
+    if (warningFilter) items = items.filter(i => i.status === 'WARNING');
+    if (hideSafeFilter) items = items.filter(i => i.status !== 'SAFE' && i.status !== 'INFO');
+    if (keyword) items = items.filter(i => String(i.id).toLowerCase().includes(keyword) || (i.target && i.target.toLowerCase().includes(keyword)) || (i.reason && i.reason.toLowerCase().includes(keyword)));
+    renderTimeline(items);
+    renderTables(keyword);
+    renderImportantTab();
+    updateCounts();
+}
+
+function toggleHideSafeFilter() {
+    hideSafeFilter = !hideSafeFilter;
+    if (hideSafeFilter) { warningFilter = false; dangerFilter = false; }
+    var btn = document.getElementById('btn-hide-safe');
+    var btnW = document.getElementById('btn-warning');
+    var btnD = document.getElementById('btn-danger');
+    btn.innerHTML = hideSafeFilter ? '🟢 正常を非表示 (ON)' : '🟢 正常を非表示 (OFF)';
+    btn.classList.toggle('active', hideSafeFilter);
+    if (hideSafeFilter) {
+        btnW.innerHTML = '🟡 警告のみ (OFF)'; btnW.classList.remove('active');
+        btnD.innerHTML = '🔴 危険のみ (OFF)'; btnD.classList.remove('active');
+    }
+    filterAll();
+}
+
+function toggleWarningFilter() {
+    warningFilter = !warningFilter;
+    if (warningFilter) { dangerFilter = false; hideSafeFilter = false; }
+    var btnS = document.getElementById('btn-hide-safe');
+    btnS.innerHTML = '🟢 正常を非表示 (OFF)'; btnS.classList.remove('active');
+    var btnW = document.getElementById('btn-warning');
+    var btnD = document.getElementById('btn-danger');
+    btnW.innerHTML = warningFilter ? '🟡 警告のみ (ON)' : '🟡 警告のみ (OFF)';
+    btnW.classList.toggle('active', warningFilter);
+    btnD.innerHTML = '🔴 危険のみ (OFF)';
+    btnD.classList.remove('active');
+    filterAll();
+}
+
+function toggleDangerFilter() {
+    dangerFilter = !dangerFilter;
+    if (dangerFilter) { warningFilter = false; hideSafeFilter = false; }
+    var btnS = document.getElementById('btn-hide-safe');
+    btnS.innerHTML = '🟢 正常を非表示 (OFF)'; btnS.classList.remove('active');
+    var btnW = document.getElementById('btn-warning');
+    var btnD = document.getElementById('btn-danger');
+    btnD.innerHTML = dangerFilter ? '🔴 危険のみ (ON)' : '🔴 危険のみ (OFF)';
+    btnD.classList.toggle('active', dangerFilter);
+    btnW.innerHTML = '🟡 警告のみ (OFF)';
+    btnW.classList.remove('active');
+    filterAll();
+}
+
+function toggleSelfFilter() {
+    selfFilter = !selfFilter;
+    var btn = document.getElementById('btn-self');
+    btn.innerHTML = selfFilter ? '🐟 自己除外 (ON)' : '🐟 自己除外 (OFF)';
+    btn.classList.toggle('active', selfFilter);
+    filterAll();
+}
+
+
+function updateCounts() {
+    if (!allData) return;
+    const f = (arr) => {
+        let l = arr || [];
+        if (selfFilter) l = l.filter(i => !i.is_self);
+        if (dangerFilter) l = l.filter(i => i.status === 'DANGER');
+        if (warningFilter) l = l.filter(i => i.status === 'WARNING');
+        if (hideSafeFilter) l = l.filter(i => i.status !== 'SAFE' && i.status !== 'INFO');
+        return l.length;
+    };
+
+    const prc = f(allData.processes), mem = f(allData.memory), per = f(allData.persistence), net = f(allData.networks), evt = f(allData.eventlogs), evi = f(allData.evidence), pca = f(allData.pca), ads = f(allData.ads), wsl = f(allData.wsl), cam = f(allData.cam), srum = f(allData.srum), recall = f(allData.recall);
+    const total = prc + mem + per + net + evt + evi + pca + ads + wsl + cam + srum + recall;
+    document.getElementById('count-display').innerHTML = '📋 合計:' + total + ' | Proc:' + prc + ' Mem:' + mem + ' Persist:' + per + ' Net:' + net + ' Log:' + evt + ' Evid:' + evi + ' PCA:' + pca + ' ADS:' + ads + ' WSL:' + wsl + ' CAM:' + cam + ' SRUM:' + srum + ' Recall:' + recall;
+
+    // サイドバー件数バッジ更新
+    var sidebarCounts = {
+        'timeline': total, 'logs': evt, 'proc': prc, 'memory': mem,
+        'persist': per, 'network': net, 'evidence': evi, 'pca': pca,
+        'ads': ads, 'wsl': wsl, 'cam': cam, 'srum': srum, 'recall': recall
+    };
+    for (var tab in sidebarCounts) {
+        var badge = document.querySelector('.sidebar-item[data-tab="' + tab + '"] .sidebar-item-badge');
+        if (badge) {
+            badge.textContent = sidebarCounts[tab];
+            badge.style.display = sidebarCounts[tab] > 0 ? '' : 'none';
+        }
+    }
+}
+
+/* --- グラフ（タイムライン） --- */
+function createBuckets() {
+    const bucketCount = 100;
+    buckets = new Array(bucketCount).fill(0);
+    const range = timeRange.max - timeRange.min;
+    if (range <= 0) return;
+    timelineItems.forEach(item => {
+        const index = Math.floor(((item.ts - timeRange.min) / range) * (bucketCount - 1));
+        if (index >= 0 && index < bucketCount) buckets[index]++;
+    });
+}
+
+function initGraph() {
+    canvas = document.getElementById('timeline-canvas');
+    ctx = canvas.getContext('2d');
+    const resize = () => {
+        if (canvas.parentElement) {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            drawGraph();
+        }
+    };
+    window.addEventListener('resize', resize);
+    resize();
+    canvas.addEventListener('mousedown', e => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        if (x < PADDING.left) return;
+        selection.active = true;
+        selection.start = x;
+        selection.end = x;
+        drawGraph();
+    });
+    canvas.addEventListener('mousemove', e => {
+        if (selection.active) {
+            const rect = canvas.getBoundingClientRect();
+            selection.end = Math.max(PADDING.left, Math.min(e.clientX - rect.left, canvas.width - PADDING.right));
+            drawGraph();
+            updateSelectionInfo();
+        }
+    });
+    canvas.addEventListener('mouseup', finishSelection);
+    canvas.addEventListener('mouseleave', () => { if (selection.active) finishSelection(); });
+    canvas.addEventListener('dblclick', resetZoom);
+}
+
+function finishSelection() {
+    if (!selection.active) return;
+    selection.active = false;
+    if (Math.abs(selection.end - selection.start) < 5) return;
+    applyRangeFilter();
+}
+
+function resetZoom() {
+    selection = { start: null, end: null, active: false };
+    document.getElementById('selection-info').style.display = 'none';
+    filterAll();
+    drawGraph();
+}
+
+function drawGraph() {
+    const w = canvas.width, h = canvas.height;
+    const drawW = w - PADDING.left - PADDING.right;
+    const drawH = h - PADDING.top - PADDING.bottom;
+    ctx.clearRect(0, 0, w, h);
+
+    /* 軸 */
+    ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PADDING.left, PADDING.top);
+    ctx.lineTo(PADDING.left, h - PADDING.bottom);
+    ctx.lineTo(w - PADDING.right, h - PADDING.bottom);
+    ctx.stroke();
+
+    /* ラベル */
+    ctx.fillStyle = '#5a7a9a';
+    ctx.font = '10px Consolas';
+    const maxVal = Math.max(...buckets, 1);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(maxVal, PADDING.left - 5, PADDING.top);
+    ctx.fillText('0', PADDING.left - 5, h - PADDING.bottom);
+
+    ctx.save();
+    ctx.translate(15, h / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00d4ff';
+    ctx.fillText('Activity', 0, 0);
+    ctx.restore();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#5a7a9a';
+    ctx.fillText(formatShortDate(new Date(timeRange.min)), PADDING.left, h - PADDING.bottom + 5);
+    ctx.fillText(formatShortDate(new Date(timeRange.max)), w - PADDING.right, h - PADDING.bottom + 5);
+    ctx.fillStyle = '#00d4ff';
+    ctx.fillText('Time Line', PADDING.left + drawW / 2, h - PADDING.bottom + 18);
+
+    if (buckets.length === 0) return;
+    const stepX = drawW / (buckets.length - 1);
+
+    /* エリアチャート */
+    ctx.beginPath();
+    ctx.moveTo(PADDING.left, h - PADDING.bottom);
+    buckets.forEach((val, i) => {
+        ctx.lineTo(PADDING.left + (i * stepX), (h - PADDING.bottom) - ((val / maxVal) * drawH));
+    });
+    ctx.lineTo(PADDING.left + drawW, h - PADDING.bottom);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, PADDING.top, 0, h - PADDING.bottom);
+    grad.addColorStop(0, 'rgba(0, 212, 255, 0.5)');
+    grad.addColorStop(1, 'rgba(0, 212, 255, 0.05)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = '#00d4ff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    /* 選択範囲 */
+    if (selection.start !== null && selection.end !== null) {
+        const s = Math.min(selection.start, selection.end);
+        const e = Math.max(selection.start, selection.end);
+        const selW = e - s;
+        ctx.fillStyle = 'rgba(0, 212, 255, 0.1)';
+        ctx.fillRect(s, PADDING.top, selW, drawH);
+        ctx.strokeStyle = '#00d4ff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(s, PADDING.top, selW, drawH);
+    }
+}
+
+function updateSelectionInfo() {
+    if (selection.start === null) return;
+    const w = canvas.width;
+    const drawW = w - PADDING.left - PADDING.right;
+    const range = timeRange.max - timeRange.min;
+    const sX = Math.min(selection.start, selection.end) - PADDING.left;
+    const eX = Math.max(selection.start, selection.end) - PADDING.left;
+    const sTime = timeRange.min + (sX / drawW) * range;
+    const eTime = timeRange.min + (eX / drawW) * range;
+    const info = document.getElementById('selection-info');
+    info.innerHTML = formatDate(sTime) + ' <br>⬇<br> ' + formatDate(eTime);
+    info.style.display = 'block';
+}
+
+function applyRangeFilter() {
+    if (selection.start === null) return;
+    const w = canvas.width;
+    const drawW = w - PADDING.left - PADDING.right;
+    const range = timeRange.max - timeRange.min;
+    const sX = Math.min(selection.start, selection.end) - PADDING.left;
+    const eX = Math.max(selection.start, selection.end) - PADDING.left;
+    const startTime = timeRange.min + (sX / drawW) * range;
+    const endTime = timeRange.min + (eX / drawW) * range;
+    renderTimeline(timelineItems.filter(i => i.ts >= startTime && i.ts <= endTime));
+}
+
+/* --- ユーティリティ --- */
+function formatDate(ts) {
+    if (!ts) return '-';
+    const d = new Date(ts);
+    return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+function formatShortDate(d) {
+    return pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+function pad(n) { return n < 10 ? '0' + n : n; }
+function cls(s) { return s === 'DANGER' ? 'danger' : s === 'WARNING' ? 'warning' : 'safe'; }
+function statusJP(s) { return s === 'DANGER' ? '危険' : s === 'WARNING' ? '警告' : '正常'; }
+
+/* --- 詳細モーダル --- */
+function openDetailModal(tab, idxOrKey) {
+    var d, actualTab;
+    if (typeof idxOrKey === 'number') {
+        var entry = _impDataList[idxOrKey];
+        if (!entry) return;
+        d = entry.data;
+        actualTab = entry.tab;
+    } else {
+        var mapEntry = importantItems.get(idxOrKey);
+        if (!mapEntry) return;
+        d = mapEntry.data;
+        actualTab = mapEntry.tab;
+    }
+    tab = actualTab || tab;
+
+    const body = document.getElementById('detail-modal-body');
+    const tabLabel = getTabLabel(tab);
+    let html = '<span class="detail-category-badge tag-evid">' + tabLabel + '</span>';
+    const fields = getDetailFields(tab, d);
+    var _descTabIdx = 0;
+    fields.forEach(f => {
+        let valClass = '';
+        if (f.type === 'danger') valClass = ' detail-value-danger';
+        else if (f.type === 'safe') valClass = ' detail-value-safe';
+        else if (f.type === 'warning') valClass = ' detail-value-warning';
+        html += '<div class="detail-row">';
+        html += '<div class="detail-label">' + f.label + '</div>';
+        if (f.label === '解説' && f.value && f.value.indexOf('\u3010') >= 0) {
+            html += '<div class="detail-value">' + buildDescTabs(f.value, 'modal_desc_' + (_descTabIdx++)) + '</div>';
+        } else {
+            html += '<div class="detail-value' + valClass + '">' + (f.value || '-') + '</div>';
+        }
+        html += '</div>';
+    });
+    body.innerHTML = html;
+    document.getElementById('detail-modal-overlay').classList.add('open');
+}
+
+function closeDetailModal() {
+    document.getElementById('detail-modal-overlay').classList.remove('open');
+}
+
+function getDetailFields(tab, d) {
+    const statusText = d.status === 'DANGER' ? '危険' : d.status === 'WARNING' ? '警告' : '正常';
+    const statusType = d.status === 'DANGER' ? 'danger' : d.status === 'WARNING' ? 'warning' : 'safe';
+    switch (tab) {
+        case 'proc': return [
+            { label: 'PID', value: d.pid },
+            { label: 'プロセス名', value: d.name },
+            { label: '親プロセス', value: d.parent || '-' },
+            { label: 'パス', value: d.path },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: 'DNAエントロピー', value: d.dna ? d.dna.entropy + ' (' + d.dna.verdict + ')' : '-' },
+            { label: '起動時刻', value: d.time },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'memory': return [
+            { label: 'PID', value: d.pid },
+            { label: 'プロセス名', value: d.name },
+            { label: 'アドレス', value: d.address },
+            { label: 'リージョン数', value: d.size },
+            { label: 'パーミッション', value: d.perms_summary || '-' },
+            { label: 'タイプ', value: d.type },
+            { label: '解説', value: d.desc || '-' },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'logs': return [
+            { label: 'イベントID', value: d.id },
+            { label: 'ログ種別', value: d.log },
+            { label: '時刻', value: d.time },
+            { label: '説明', value: d.desc },
+            { label: 'メッセージ', value: d.message },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'persist': return [
+            { label: 'タイプ', value: d.type },
+            { label: '名前', value: d.name || d.entry },
+            { label: 'コマンド', value: d.command || d.value },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'network': return [
+            { label: 'プロトコル', value: d.protocol },
+            { label: 'ローカル', value: d.local },
+            { label: 'リモート', value: d.remote },
+            { label: '逆引きDNS', value: d.rdns || '-' },
+            { label: '状態', value: d.state },
+            { label: 'プロセス', value: d.process },
+            { label: '実行ユーザー', value: d.user || '-' },
+            { label: 'デジタル署名', value: d.signature || '-', type: d.signature === '未署名' ? 'danger' : d.signature === '署名済み' ? 'safe' : '' },
+            { label: '接続数', value: d.conn_count || '-' },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+
+        case 'evidence': return [
+            { label: 'ソース', value: d.source },
+            { label: 'アーティファクト', value: d.artifact },
+            { label: '時刻', value: d.timestamp },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'pca': return [
+            { label: 'ソース', value: d.source },
+            { label: 'ファイル名', value: d.exe_name || '-' },
+            { label: 'パス', value: d.artifact },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: 'ファイル状態', value: d.file_exists ? '存在' : '削除済み', type: d.file_exists ? 'safe' : 'danger' },
+            { label: 'タイムスタンプ', value: d.timestamp },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'ads': return [
+            { label: 'ファイル名', value: d.artifact },
+            { label: 'Zone', value: d.zone_name || '-' },
+            { label: 'ダウンロード元', value: d.host_url },
+            { label: '参照元', value: d.referrer_url },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: 'サイズ', value: d.file_size || '-' },
+            { label: '更新日時', value: d.timestamp },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'wsl': return [
+            { label: '検査項目', value: d.source },
+            { label: '検出内容', value: d.artifact },
+            { label: '詳細', value: d.detail ? d.detail.replace(/\\n/g, '\n') : '-' },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: 'タイムスタンプ', value: d.timestamp },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+
+        case 'cam': return [
+            { label: 'ソース', value: d.source },
+            { label: 'プログラム名', value: d.program_name },
+            { label: 'パス', value: d.exe_path },
+            { label: '実行日時', value: d.run_time },
+            { label: '実行回数', value: d.run_count },
+            { label: '終了コード', value: d.exit_code || '-' },
+            { label: 'ファイル状態', value: d.file_exists ? '存在' : '削除済み', type: d.file_exists ? 'safe' : 'danger' },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'srum': return [
+            { label: 'ソース', value: d.source },
+            { label: 'アプリ名', value: d.app_name },
+            { label: '詳細', value: d.detail },
+            { label: '送信量', value: d.network_sent || '-' },
+            { label: '受信量', value: d.network_recv || '-' },
+            { label: 'CPU時間', value: d.cpu_time || '-' },
+            { label: 'ユーザーSID', value: d.user_sid || '-' },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: 'タイムスタンプ', value: d.timestamp },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        case 'recall': return [
+            { label: '検査項目', value: d.source },
+            { label: '検出内容', value: d.artifact },
+            { label: '詳細', value: d.detail },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
+            { label: 'タイムスタンプ', value: d.timestamp },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+
+        case 'timeline': return [
+            { label: 'カテゴリ', value: d.cat || tab },
+            { label: 'ID', value: d.id || d.pid || '-' },
+            { label: '対象', value: d.name || d.artifact || d.desc || '-' },
+            { label: '検知理由', value: d.reason || d.message || '', type: (d.reason || d.message) ? 'danger' : '' },
+            { label: '時刻', value: d.time || d.timestamp || '-' },
+            { label: '判定', value: statusText, type: statusType }
+        ];
+        default: return [
+            { label: 'データ', value: JSON.stringify(d, null, 2) }
+        ];
+    }
+}
+
+/* --- 列幅リサイズ --- */
+function initColumnResize() {
+    document.querySelectorAll('th').forEach(th => {
+        if (th.querySelector('.th-resizer')) return;
+        const resizer = document.createElement('div');
+        resizer.className = 'th-resizer';
+        th.appendChild(resizer);
+
+        let startX, startW;
+
+        resizer.addEventListener('mousedown', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            startX = e.pageX;
+            startW = th.offsetWidth;
+            resizer.classList.add('resizing');
+            document.body.classList.add('col-resizing');
+
+            const onMove = ev => {
+                const diff = ev.pageX - startX;
+                const newW = Math.max(30, startW + diff);
+                th.style.width = newW + 'px';
+                th.style.minWidth = newW + 'px';
+            };
+            const onUp = () => {
+                resizer.classList.remove('resizing');
+                document.body.classList.remove('col-resizing');
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    });
+}
+
+/* テーブル描画後にリサイザーを初期化 */
+const originalRenderAll = renderAll;
+renderAll = function() {
+    originalRenderAll();
+    setTimeout(initColumnResize, 50);
+};
+
+
+/* --- 一括登録・全解除 --- */
+function bulkRegisterImportant() {
+    let count = 0;
+
+    /* プロセス */
+    if (allData.processes) allData.processes.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('proc', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'proc', key: key, data: i }); count++; }
+        }
+    });
+
+    /* メモリ */
+    if (allData.memory) allData.memory.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('memory', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'memory', key: key, data: i }); count++; }
+        }
+    });
+
+    /* イベントログ */
+    if (allData.eventlogs) allData.eventlogs.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('logs', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'logs', key: key, data: i }); count++; }
+        }
+    });
+
+    /* 永続化 */
+    if (allData.persistence) allData.persistence.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('persist', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'persist', key: key, data: i }); count++; }
+        }
+    });
+
+    /* ネットワーク */
+    if (allData.networks) allData.networks.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('network', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'network', key: key, data: i }); count++; }
+        }
+    });
+
+    /* 痕跡 */
+    if (allData.evidence) allData.evidence.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('evidence', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'evidence', key: key, data: i }); count++; }
+        }
+    });
+
+    /* PCA（削除済みも含む） */
+    if (allData.pca) allData.pca.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING' || (i.file_exists === false && i.status !== 'SAFE')) {
+            const key = getItemKey('pca', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'pca', key: key, data: i }); count++; }
+        }
+    });
+
+
+    /* ADS */
+    if (allData.ads) allData.ads.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('ads', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'ads', key: key, data: i }); count++; }
+        }
+    });
+
+    /* WSL */
+    if (allData.wsl) allData.wsl.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('wsl', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'wsl', key: key, data: i }); count++; }
+        }
+    });
+
+    /* CAM DB（削除済みも含む） */
+    if (allData.cam) allData.cam.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING' || (i.file_exists === false && i.status !== 'SAFE')) {
+            const key = getItemKey('cam', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'cam', key: key, data: i }); count++; }
+        }
+    });
+
+
+    /* SRUM */
+    if (allData.srum) allData.srum.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('srum', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'srum', key: key, data: i }); count++; }
+        }
+    });
+
+    /* Recall */
+    if (allData.recall) allData.recall.forEach(i => {
+        if (i.status === 'DANGER' || i.status === 'WARNING') {
+            const key = getItemKey('recall', i);
+            if (!importantItems.has(key)) { importantItems.set(key, { tab: 'recall', key: key, data: i }); count++; }
+        }
+    });
+
+
+    saveImportantToStorage();
+    updateImportantBadge();
+    renderAll();
+    renderImportantTab();
+    const statusEl = document.getElementById('important-bulk-status');
+    statusEl.textContent = count > 0 ? '✅ ' + count + '件を新規登録しました' : '新規登録対象はありませんでした';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+}
+
+function clearAllImportant() {
+    if (importantItems.size === 0) return;
+    if (!confirm('重要アーティファクトを全て解除しますか？（' + importantItems.size + '件）')) return;
+    importantItems.clear();
+    saveImportantToStorage();
+    updateImportantBadge();
+    renderAll();
+    renderImportantTab();
+}
+
+
+
+// ============================================
+// P13: テーマ・設定管理
+// ============================================
+var sacaSettings = loadSettings();
+applySettings(sacaSettings);
+
+// ============================================
+// P18: 3レベル説明エンジン
+// ============================================
+var explanationLevel = 'intermediate';
+
+function initExplanationLevel() {
+    try {
+        var s = JSON.parse(localStorage.getItem('saca-settings'));
+        if (s && s.explanationLevel) {
+            explanationLevel = s.explanationLevel;
+        }
+    } catch(e) {}
+    applyExplanationLevelUI();
+}
+
+function setExplanationLevel(level) {
+    explanationLevel = level;
+    sacaSettings.explanationLevel = level;
+    saveSettings();
+    applyExplanationLevelUI();
+    // 再描画
+    if (allData) {
+        renderAll();
+        renderImportantTab();
+    }
+    var labels = {
+        beginner: '検知内容のみ表示（簡潔モード）',
+        intermediate: '検知内容 + 危険性 + MITRE を表示',
+        advanced: '全セクション表示（詳細モード）'
+    };
+    showToast('info', '解説レベル変更', labels[level] || level);
+}
+
+function applyExplanationLevelUI() {
+    document.querySelectorAll('.theme-btn[data-level]').forEach(function(btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-level') === explanationLevel);
+    });
+    var desc = document.getElementById('level-description');
+    if (desc) {
+        var labels = {
+            beginner: '検知内容のみ表示（簡潔モード）',
+            intermediate: '検知内容 + 危険性 + MITRE を表示',
+            advanced: '全セクション表示（詳細モード）'
+        };
+        desc.textContent = labels[explanationLevel] || '';
+    }
+    document.documentElement.setAttribute('data-explanation-level', explanationLevel);
+}
+
+function filterDescByLevel(desc) {
+    if (!desc || typeof desc !== 'string') return desc || '';
+    
+    // セクション分割: 【xxx】で始まるブロックを抽出
+    var sectionPattern = /【[^】]+】/g;
+    var matches = [];
+    var match;
+    while ((match = sectionPattern.exec(desc)) !== null) {
+        matches.push({ index: match.index, header: match[0] });
+    }
+    
+    // セクションが見つからない場合はそのまま返す
+    if (matches.length === 0) return desc;
+    
+    // 各セクションのテキストを抽出
+    var sections = [];
+    for (var i = 0; i < matches.length; i++) {
+        var start = matches[i].index;
+        var end = (i + 1 < matches.length) ? matches[i + 1].index : desc.length;
+        sections.push({
+            header: matches[i].header,
+            text: desc.substring(start, end).trim()
+        });
+    }
+    
+    // レベルに応じてフィルタ
+    var allowed;
+    switch (explanationLevel) {
+        case 'beginner':
+            allowed = ['【検知内容】'];
+            break;
+        case 'intermediate':
+            allowed = ['【検知内容】', '【なぜ危険か】', '【MITRE ATT&CK】'];
+            break;
+        case 'advanced':
+        default:
+            // 全セクション表示
+            return desc;
+    }
+    
+    var filtered = sections.filter(function(s) {
+        return allowed.indexOf(s.header) >= 0;
+    });
+    
+    if (filtered.length === 0) return desc;
+    return filtered.map(function(s) { return s.text; }).join('\n\n');
+}
+
+// 初期化
+initExplanationLevel();
+
+// ============================================
+// P18改: 解説フィールド タブ化
+// ============================================
+function buildDescTabs(desc, fieldId) {
+    if (!desc || typeof desc !== 'string') return desc || '-';
+    
+    // セクション分割
+    var sectionPattern = /\u3010[^\u3011]+\u3011/g;
+    var matches = [];
+    var match;
+    while ((match = sectionPattern.exec(desc)) !== null) {
+        matches.push({ index: match.index, header: match[0] });
+    }
+    
+    // セクションがない場合はそのまま
+    if (matches.length === 0) return '<div style="white-space:pre-wrap;">' + escHtml(desc) + '</div>';
+    
+    var sections = [];
+    for (var i = 0; i < matches.length; i++) {
+        var start = matches[i].index;
+        var end = (i + 1 < matches.length) ? matches[i + 1].index : desc.length;
+        sections.push({
+            header: matches[i].header,
+            text: desc.substring(start, end).trim()
+        });
+    }
+    
+    // 各レベルのコンテンツを構築
+    var levels = {
+        beginner: ['\u3010\u691C\u77E5\u5185\u5BB9\u3011'],
+        intermediate: ['\u3010\u691C\u77E5\u5185\u5BB9\u3011', '\u3010\u306A\u305C\u5371\u967A\u304B\u3011', '\u3010MITRE ATT&CK\u3011'],
+        advanced: null  // 全表示
+    };
+    
+    var uid = fieldId || ('dt_' + Math.random().toString(36).substr(2, 6));
+    
+    function buildContent(allowedHeaders) {
+        var filtered = allowedHeaders ? sections.filter(function(s) {
+            return allowedHeaders.indexOf(s.header) >= 0;
+        }) : sections;
+        if (filtered.length === 0) return '<span style="color:var(--text-muted);">-</span>';
+        return filtered.map(function(s) {
+            return '<div class="desc-section-header">' + escHtml(s.header) + '</div>' +
+                   '<div>' + escHtml(s.text.substring(s.header.length).trim()).replace(/\n/g, '<br>') + '</div>';
+        }).join('');
+    }
+    
+    var beginnerContent = buildContent(levels.beginner);
+    var intermediateContent = buildContent(levels.intermediate);
+    var advancedContent = buildContent(levels.advanced);
+    
+    // 現在のレベルをデフォルトアクティブに
+    var defaultLevel = explanationLevel || 'intermediate';
+    
+    var tabHtml = '<div class="desc-tabs">' +
+        '<button class="desc-tab' + (defaultLevel === 'beginner' ? ' active' : '') + '" onclick="switchDescTab(\'' + uid + '\', \'beginner\', this)">\u521D\u5FC3\u8005<span class="desc-tab-badge desc-tab-badge-b">\u7C21\u6F54</span></button>' +
+        '<button class="desc-tab' + (defaultLevel === 'intermediate' ? ' active' : '') + '" onclick="switchDescTab(\'' + uid + '\', \'intermediate\', this)">\u4E2D\u7D1A\u8005<span class="desc-tab-badge desc-tab-badge-i">\u6A19\u6E96</span></button>' +
+        '<button class="desc-tab' + (defaultLevel === 'advanced' ? ' active' : '') + '" onclick="switchDescTab(\'' + uid + '\', \'advanced\', this)">\u4E0A\u7D1A\u8005<span class="desc-tab-badge desc-tab-badge-a">\u8A73\u7D30</span></button>' +
+        '</div>';
+    
+    tabHtml += '<div id="' + uid + '_beginner" class="desc-tab-content' + (defaultLevel === 'beginner' ? ' active' : '') + '">' + beginnerContent + '</div>';
+    tabHtml += '<div id="' + uid + '_intermediate" class="desc-tab-content' + (defaultLevel === 'intermediate' ? ' active' : '') + '">' + intermediateContent + '</div>';
+    tabHtml += '<div id="' + uid + '_advanced" class="desc-tab-content' + (defaultLevel === 'advanced' ? ' active' : '') + '">' + advancedContent + '</div>';
+    
+    return tabHtml;
+}
+
+function switchDescTab(uid, level, btn) {
+    // タブボタンの切替
+    var tabs = btn.parentElement.querySelectorAll('.desc-tab');
+    tabs.forEach(function(t) { t.classList.remove('active'); });
+    btn.classList.add('active');
+    
+    // コンテンツの切替
+    ['beginner', 'intermediate', 'advanced'].forEach(function(l) {
+        var el = document.getElementById(uid + '_' + l);
+        if (el) el.classList.toggle('active', l === level);
+    });
+}
+
+
+function loadSettings() {
+    try {
+        var saved = localStorage.getItem('saca-settings');
+        if (saved) return JSON.parse(saved);
+    } catch(e) {}
+    return { theme: 'cyber', mode: 'dark', fontSize: 14, sidebarCollapsed: false, explanationLevel: 'intermediate' };
+}
+
+function saveSettings() {
+    localStorage.setItem('saca-settings', JSON.stringify(sacaSettings));
+}
+
+function applySettings(s) {
+    document.documentElement.setAttribute('data-theme', s.theme);
+    document.documentElement.setAttribute('data-mode', s.mode);
+    document.documentElement.style.setProperty('--font-size-base', s.fontSize + 'px');
+    // テーマボタンのactive状態
+    document.querySelectorAll('.theme-btn[data-theme]').forEach(function(btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-theme') === s.theme);
+    });
+    // モードトグル
+    var mt = document.getElementById('mode-toggle');
+    if (mt) mt.classList.toggle('light', s.mode === 'light');
+    // フォントスライダー
+    var slider = document.getElementById('font-size-slider');
+    if (slider) slider.value = s.fontSize;
+    var val = document.getElementById('font-size-value');
+    if (val) val.textContent = s.fontSize + 'px';
+    // サイドバーデフォルト
+    var sbOpen = document.getElementById('sb-open-btn');
+    var sbClose = document.getElementById('sb-close-btn');
+    if (sbOpen) sbOpen.classList.toggle('active', !s.sidebarCollapsed);
+    if (sbClose) sbClose.classList.toggle('active', s.sidebarCollapsed);
+}
+
+function setTheme(theme) {
+    sacaSettings.theme = theme;
+    applySettings(sacaSettings);
+    saveSettings();
+    showToast('success', 'テーマ変更', theme === 'cyber' ? 'サイバーパンクテーマに変更しました' : 'モダンテーマに変更しました');
+}
+
+function toggleMode() {
+    sacaSettings.mode = sacaSettings.mode === 'dark' ? 'light' : 'dark';
+    applySettings(sacaSettings);
+    saveSettings();
+    showToast('info', 'モード変更', sacaSettings.mode === 'dark' ? 'ダークモードに変更しました' : 'ライトモードに変更しました');
+}
+
+function setFontSize(val) {
+    sacaSettings.fontSize = parseInt(val);
+    applySettings(sacaSettings);
+    saveSettings();
+}
+
+function setSidebarDefault(collapsed) {
+    sacaSettings.sidebarCollapsed = collapsed;
+    applySettings(sacaSettings);
+    saveSettings();
+    showToast('info', 'サイドバー設定', collapsed ? '次回起動時にサイドバーを閉じた状態で開始します' : '次回起動時にサイドバーを開いた状態で開始します');
+}
+
+function resetSettings() {
+    sacaSettings = { theme: 'cyber', mode: 'dark', fontSize: 14, sidebarCollapsed: false, explanationLevel: 'intermediate' };
+    applySettings(sacaSettings);
+    saveSettings();
+    showToast('success', 'リセット完了', 'デフォルト設定に戻しました');
+}
+
+function toggleSettings() {
+    var overlay = document.getElementById('settings-overlay');
+    if (overlay) overlay.classList.toggle('open');
+}
+
+// ============================================
+// P13: トースト通知
+// ============================================
+function showToast(type, title, msg, duration) {
+    duration = duration || 3500;
+    var container = document.getElementById('toast-container');
+    if (!container) return;
+    var icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.innerHTML = '<span class="toast-icon">' + (icons[type] || 'ℹ️') + '</span>' +
+        '<div class="toast-body"><div class="toast-title">' + title + '</div>' +
+        '<div class="toast-msg">' + msg + '</div></div>' +
+        '<button class="toast-close" onclick="this.parentElement.remove()">✕</button>';
+    container.appendChild(toast);
+    setTimeout(function() {
+        toast.classList.add('removing');
+        setTimeout(function() { toast.remove(); }, 300);
+    }, duration);
+}
+
+// 起動時サイドバー初期状態を適用
+(function() {
+    if (sacaSettings.sidebarCollapsed) {
+        var sb = document.getElementById('sidebar');
+        if (sb && !sb.classList.contains('collapsed')) {
+            toggleSidebar();
+        }
+    }
+})();
+
+
+
+// ============================================
+// P19: Decision Tree フローエンジン
+// ============================================
+
+// 各カテゴリの判定ルールツリー定義
+var DECISION_TREES = {
+    proc: {
+        title: 'プロセス判定フロー',
+        rules: [
+            { id: 'r1', label: 'システムプロセス正規パス検証', check: function(d) { return d.reason && d.reason.indexOf('パス偽装') >= 0; }, result: 'DANGER', desc: 'svchost.exe等がSystem32以外にある' },
+            { id: 'r2', label: 'タイポスクワッティング検知', check: function(d) { return d.reason && (d.reason.indexOf('タイポ') >= 0 || d.reason.indexOf('偽装') >= 0 || d.reason.indexOf('Typo') >= 0); }, result: 'DANGER', desc: '正規プロセス名と1-2文字異なる' },
+            { id: 'r3', label: '親子関係の異常検知', check: function(d) { return d.reason && d.reason.indexOf('親子') >= 0; }, result: 'DANGER', desc: '想定外の親プロセスからの起動' },
+            { id: 'r4', label: '不審な実行パス', check: function(d) { return d.reason && (d.reason.indexOf('不審パス') >= 0 || d.reason.indexOf('不審な') >= 0); }, result: 'WARNING', desc: 'Temp/Public/Downloads等からの実行' },
+            { id: 'r5', label: 'コマンドライン異常', check: function(d) { return d.reason && (d.reason.indexOf('Base64') >= 0 || d.reason.indexOf('ダウンロード') >= 0 || d.reason.indexOf('コマンド') >= 0); }, result: 'DANGER', desc: 'Base64エンコードやダウンロードコマンド' },
+        ]
+    },
+    memory: {
+        title: 'メモリ領域判定フロー',
+        rules: [
+            { id: 'r1', label: '匿名RWX領域の検出', check: function(d) { return d.type === 'RWX'; }, result: 'DANGER', desc: 'ファイルレス攻撃で使用される匿名メモリ' },
+            { id: 'r2', label: 'JIT-RWX領域の判定', check: function(d) { return d.type === 'JIT-RWX'; }, result: 'WARNING', desc: 'Chrome/Edge等のJSエンジンが正常使用' },
+        ]
+    },
+    logs: {
+        title: 'イベントログ判定フロー',
+        rules: [
+            { id: 'r1', label: '監査ログ消去 (ID:1102)', check: function(d) { return d.id === '1102' || d.id === 1102; }, result: 'DANGER', desc: 'Securityログが消去された' },
+            { id: 'r2', label: 'サービス登録 (ID:7045)', check: function(d) { return d.id === '7045' || d.id === 7045; }, result: 'DANGER', desc: '不審なサービスパスの可能性' },
+            { id: 'r3', label: 'PowerShell実行 (ID:4104)', check: function(d) { return d.id === '4104' || d.id === 4104; }, result: 'DANGER', desc: '不審なスクリプトブロック' },
+            { id: 'r4', label: '異常終了 (ID:41)', check: function(d) { return d.id === '41' || d.id === 41; }, result: 'DANGER', desc: 'システムの異常終了' },
+            { id: 'r5', label: 'ログオン失敗 (ID:4625)', check: function(d) { return d.id === '4625' || d.id === 4625; }, result: 'WARNING', desc: 'ブルートフォースの可能性' },
+            { id: 'r6', label: '管理者権限行使 (ID:4672)', check: function(d) { return d.id === '4672' || d.id === 4672; }, result: 'WARNING', desc: '権限昇格の可能性' },
+            { id: 'r7', label: '危険キーワード検知', check: function(d) { return d.reason && d.reason.indexOf('不審') >= 0; }, result: 'DANGER', desc: 'メッセージ内に攻撃関連キーワード' },
+        ]
+    },
+    persist: {
+        title: '永続化判定フロー',
+        rules: [
+            { id: 'r1', label: '攻撃ツールの自動実行', check: function(d) { return d.reason && d.reason.indexOf('攻撃ツール') >= 0; }, result: 'DANGER', desc: 'mimikatz/psexec等の自動起動' },
+            { id: 'r2', label: 'LOLBin + 不審引数', check: function(d) { return d.reason && d.reason.indexOf('LOLBin') >= 0 && d.reason.indexOf('引数') >= 0; }, result: 'DANGER', desc: 'PowerShell -enc等のファイルレス攻撃パターン' },
+            { id: 'r3', label: 'LOLBin + 不審パス', check: function(d) { return d.reason && d.reason.indexOf('LOLBin') >= 0 && d.reason.indexOf('パス') >= 0; }, result: 'WARNING', desc: 'Temp等からLOLBinを自動起動' },
+            { id: 'r4', label: '不審パスからの実行', check: function(d) { return d.reason && d.reason.indexOf('不審') >= 0; }, result: 'WARNING', desc: 'Temp/Public等からの自動起動' },
+        ]
+    },
+    network: {
+        title: 'ネットワーク判定フロー',
+        rules: [
+            { id: 'r1', label: '攻撃ツール通信', check: function(d) { return d.reason && d.reason.indexOf('攻撃ツール') >= 0; }, result: 'DANGER', desc: '既知の攻撃ツールのネットワーク使用' },
+            { id: 'r2', label: 'LOLBins外部通信', check: function(d) { return d.reason && d.reason.indexOf('LOLBin') >= 0; }, result: 'DANGER', desc: 'PowerShell等が外部IPと通信' },
+            { id: 'r3', label: '危険ポート接続', check: function(d) { return d.reason && (d.reason.indexOf('ブラックリスト') >= 0 || d.reason.indexOf('危険ポート') >= 0); }, result: 'DANGER', desc: 'C2/バックドア頻用ポート' },
+            { id: 'r4', label: '非標準ポート通信', check: function(d) { return d.reason && d.reason.indexOf('非標準') >= 0; }, result: 'WARNING', desc: '一般的でないポートでの外部接続' },
+            { id: 'r5', label: 'ビーコニング検知', check: function(d) { return d.reason && d.reason.indexOf('ビーコニング') >= 0; }, result: 'WARNING', desc: '同一IPへの複数接続（C2特徴）' },
+            { id: 'r6', label: '大量接続', check: function(d) { return d.reason && d.reason.indexOf('大量') >= 0; }, result: 'WARNING', desc: '1プロセスからの異常な接続数' },
+            { id: 'r7', label: 'アカウント異常', check: function(d) { return d.reason && d.reason.indexOf('アカウント') >= 0; }, result: 'WARNING', desc: 'システムプロセスの異常ユーザー' },
+            { id: 'r8', label: '未署名プロセス通信', check: function(d) { return d.reason && d.reason.indexOf('未署名') >= 0; }, result: 'WARNING', desc: '署名なしプロセスの外部通信' },
+        ]
+    },
+    evidence: {
+        title: '実行痕跡判定フロー',
+        rules: [
+            { id: 'r1', label: '攻撃ツール検知', check: function(d) { return d.reason && d.reason.indexOf('攻撃ツール') >= 0; }, result: 'DANGER', desc: 'UserAssist/Prefetchに攻撃ツールの記録' },
+            { id: 'r2', label: 'LOLBin実行', check: function(d) { return d.reason && d.reason.indexOf('LOLBin') >= 0; }, result: 'WARNING', desc: '正規ツールの悪用可能性' },
+            { id: 'r3', label: '偵察コマンド', check: function(d) { return d.reason && d.reason.indexOf('偵察') >= 0; }, result: 'WARNING', desc: 'Discovery フェーズの可能性' },
+            { id: 'r4', label: '不審パス実行', check: function(d) { return d.reason && d.reason.indexOf('不審パス') >= 0; }, result: 'WARNING', desc: 'Temp/Downloads等からの実行' },
+        ]
+    },
+    ads: {
+        title: 'ADS判定フロー',
+        rules: [
+            { id: 'r1', label: '実行ファイルのインターネットDL', check: function(d) { return d.status === 'DANGER'; }, result: 'DANGER', desc: '.exe/.dll/.ps1等がZone3/4からDL' },
+            { id: 'r2', label: 'アーカイブ/OfficeのインターネットDL', check: function(d) { return d.status === 'WARNING'; }, result: 'WARNING', desc: '.zip/.docx等がインターネットからDL' },
+        ]
+    },
+    pca: {
+        title: 'PCA判定フロー',
+        rules: [
+            { id: 'r1', label: '攻撃ツール名検知', check: function(d) { return d.reason && d.reason.indexOf('攻撃ツール') >= 0; }, result: 'DANGER', desc: '既知の攻撃ツールの実行記録' },
+            { id: 'r2', label: '不審パスからの実行', check: function(d) { return d.reason && d.reason.indexOf('不審') >= 0; }, result: 'WARNING', desc: 'Temp/Public等からの実行' },
+        ]
+    },
+    cam: {
+        title: 'CAM DB判定フロー',
+        rules: [
+            { id: 'r1', label: '攻撃ツール名検知', check: function(d) { return d.reason && d.reason.indexOf('攻撃ツール') >= 0; }, result: 'DANGER', desc: 'CAM DBに攻撃ツールの記録' },
+            { id: 'r2', label: '削除済みファイル', check: function(d) { return d.reason && d.reason.indexOf('削除済み') >= 0; }, result: 'WARNING', desc: '実行後に証拠隠滅の可能性' },
+            { id: 'r3', label: '不審パス実行', check: function(d) { return d.reason && d.reason.indexOf('不審') >= 0; }, result: 'WARNING', desc: 'Temp等からの実行' },
+            { id: 'r4', label: '異常終了コード', check: function(d) { return d.reason && d.reason.indexOf('終了コード') >= 0; }, result: 'WARNING', desc: 'AV/EDRによる強制終了の可能性' },
+        ]
+    },
+    srum: {
+        title: 'SRUM判定フロー',
+        rules: [
+            { id: 'r1', label: 'SRUDB異常肥大化', check: function(d) { return d.reason && d.reason.indexOf('巨大') >= 0; }, result: 'DANGER', desc: '大量通信（情報窃取）の疑い' },
+            { id: 'r2', label: '攻撃ツール通信', check: function(d) { return d.reason && d.reason.indexOf('攻撃ツール') >= 0; }, result: 'DANGER', desc: '攻撃ツールのネットワーク通信' },
+            { id: 'r3', label: '大量接続プロセス', check: function(d) { return d.reason && d.reason.indexOf('接続') >= 0; }, result: 'WARNING', desc: 'C2ビーコニングの可能性' },
+        ]
+    },
+    wsl: {
+        title: 'WSL判定フロー',
+        rules: [
+            { id: 'r1', label: '不審コマンド履歴', check: function(d) { return d.reason && (d.reason.indexOf('不審') >= 0 || d.reason.indexOf('危険') >= 0); }, result: 'DANGER', desc: 'bash_historyに攻撃コマンド' },
+            { id: 'r2', label: 'vmmem高メモリ使用', check: function(d) { return d.reason && d.reason.indexOf('メモリ') >= 0; }, result: 'WARNING', desc: 'WSL内で高負荷プロセス実行' },
+            { id: 'r3', label: 'WSLディストロ検出', check: function(d) { return d.reason && d.reason.indexOf('ディストロ') >= 0; }, result: 'INFO', desc: 'WSL環境が存在する' },
+        ]
+    },
+    recall: {
+        title: 'Recall判定フロー',
+        rules: [
+            { id: 'r1', label: 'Recall DB 大容量', check: function(d) { return d.status === 'DANGER'; }, result: 'DANGER', desc: '大量のスクリーンショットが蓄積' },
+            { id: 'r2', label: 'Recall有効化/プロセス検出', check: function(d) { return d.status === 'WARNING'; }, result: 'WARNING', desc: 'Recall機能が有効または実行中' },
+        ]
+    },
+};
+
+function openDecisionTree(tab, data) {
+    var tree = DECISION_TREES[tab];
+    if (!tree) {
+        showToast('warning', '判定フロー', 'このカテゴリの判定フローは未定義です');
+        return;
+    }
+
+    var titleEl = document.getElementById('decision-tree-title');
+    titleEl.textContent = '\uD83C\uDF33 ' + tree.title;
+
+    var bodyEl = document.getElementById('decision-tree-body');
+    var html = '<div class="dt-flow">';
+
+    // スタートノード
+    var name = data.name || data.artifact || data.program_name || data.app_name || data.process || data.id || data.pid || '-';
+    html += '<div class="dt-node">';
+    html += '<div class="dt-icon dt-icon-start">\u25B6</div>';
+    html += '<div class="dt-content"><div class="dt-label">\u89E3\u6790\u958B\u59CB: ' + escHtml(String(name)) + '</div>';
+    html += '<div class="dt-detail">status=' + (data.status || '?') + ' | reason=' + escHtml((data.reason || '').substring(0, 80)) + '</div></div>';
+    html += '</div>';
+
+    // 各ルールを順番に評価
+    var matched = false;
+    var matchedRule = null;
+    for (var i = 0; i < tree.rules.length; i++) {
+        var rule = tree.rules[i];
+        var hit = false;
+        try { hit = rule.check(data); } catch(e) {}
+
+        if (hit && !matched) {
+            matched = true;
+            matchedRule = rule;
+            html += '<div class="dt-node">';
+            html += '<div class="dt-icon dt-icon-fail">\u2714</div>';
+            html += '<div class="dt-content"><div class="dt-label">\u2705 ' + escHtml(rule.label) + '</div>';
+            html += '<div class="dt-detail">\u8A72\u5F53: ' + escHtml(rule.desc) + '</div></div>';
+            html += '</div>';
+        } else {
+            var iconClass = hit ? 'dt-icon-warn' : 'dt-icon-pass';
+            var prefix = hit ? '\u25CB' : '\u2500';
+            html += '<div class="dt-node">';
+            html += '<div class="dt-icon ' + iconClass + '">' + prefix + '</div>';
+            html += '<div class="dt-content"><div class="dt-label">' + escHtml(rule.label) + '</div>';
+            html += '<div class="dt-detail">' + escHtml(rule.desc) + '</div></div>';
+            html += '</div>';
+        }
+    }
+
+    // 結果ノード
+    var status = data.status || 'SAFE';
+    var resultClass = status === 'DANGER' ? 'dt-result-danger' : status === 'WARNING' ? 'dt-result-warning' : status === 'INFO' ? 'dt-result-info' : 'dt-result-safe';
+    var statusLabel = status === 'DANGER' ? '\uD83D\uDD34 \u5371\u967A' : status === 'WARNING' ? '\uD83D\uDFE1 \u8B66\u544A' : status === 'INFO' ? '\u2139\uFE0F \u60C5\u5831' : '\uD83D\uDFE2 \u6B63\u5E38';
+
+    html += '<div class="dt-result ' + resultClass + '">';
+    html += '\u5224\u5B9A\u7D50\u679C: ' + statusLabel;
+    if (matchedRule) {
+        html += '<br><small>\u2192 ' + escHtml(matchedRule.label) + ' \u306B\u3088\u308B\u691C\u77E5</small>';
+    } else if (status === 'SAFE' || status === 'INFO') {
+        html += '<br><small>\u2192 \u5168\u30EB\u30FC\u30EB\u3092\u30D1\u30B9\uff08\u7570\u5E38\u306A\u3057\uff09</small>';
+    }
+    html += '</div>';
+
+    html += '</div>';
+    bodyEl.innerHTML = html;
+    document.getElementById('decision-tree-overlay').classList.add('open');
+}
+
+function closeDecisionTree() {
+    document.getElementById('decision-tree-overlay').classList.remove('open');
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Escキーで閉じる
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var dt = document.getElementById('decision-tree-overlay');
+        if (dt && dt.classList.contains('open')) {
+            closeDecisionTree();
+            return;
+        }
+    }
+});
+
+</script>
+
+<!-- P13: トースト通知コンテナ -->
+<div class="toast-container" role="alert" aria-live="assertive" aria-atomic="true" id="toast-container"></div>
+
+<!-- P13: 設定パネル -->
+<div class="settings-overlay" role="dialog" aria-modal="true" aria-label="設定パネル" id="settings-overlay" onclick="if(event.target===this)toggleSettings()">
+    <div class="settings-panel">
+        <div class="settings-header">
+            <h2>🎨 表示設定</h2>
+            <button class="settings-close" onclick="toggleSettings()">✕</button>
+        </div>
+        <div class="settings-body">
+
+            <div class="settings-section">
+                <div class="settings-section-title">テーマ</div>
+                <div class="settings-row">
+                    <span class="settings-label">カラーテーマ</span>
+                    <div class="theme-selector">
+                        <button class="theme-btn active" data-theme="cyber" onclick="setTheme('cyber')">サイバー</button>
+                        <button class="theme-btn" data-theme="normal" onclick="setTheme('normal')">モダン</button>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">
+                        表示モード
+                        <small>ダーク / ライト</small>
+                    </span>
+                    <div class="mode-toggle" id="mode-toggle" onclick="toggleMode()">
+                        <div class="mode-toggle-knob"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">フォント</div>
+                <div class="settings-row">
+                    <span class="settings-label">文字サイズ</span>
+                    <div class="font-slider">
+                        <span style="font-size:11px;color:var(--text-muted)">A</span>
+                        <input type="range" id="font-size-slider" min="10" max="20" value="14" oninput="setFontSize(this.value)">
+                        <span style="font-size:17px;color:var(--text-muted)">A</span>
+                        <span class="font-slider-value" id="font-size-value">14px</span>
+                    </div>
+                </div>
+            </div>
+
+
+            <div class="settings-section">
+                <div class="settings-section-title">解説レベル</div>
+                <div class="settings-row">
+                    <span class="settings-label">
+                        解説の詳しさ
+                        <small>初心者〜上級者</small>
+                    </span>
+                    <div class="theme-selector">
+                        <button class="theme-btn" id="lvl-beginner" data-level="beginner" onclick="setExplanationLevel('beginner')">初心者</button>
+                        <button class="theme-btn active" id="lvl-intermediate" data-level="intermediate" onclick="setExplanationLevel('intermediate')">中級者</button>
+                        <button class="theme-btn" id="lvl-advanced" data-level="advanced" onclick="setExplanationLevel('advanced')">上級者</button>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label" style="flex:1;">
+                        <small id="level-description" style="color:var(--text-muted);">検知内容 + 危険性 + MITRE を表示</small>
+                    </span>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">表示</div>
+                <div class="settings-row">
+                    <span class="settings-label">
+                        サイドバー初期状態
+                        <small>起動時の開閉</small>
+                    </span>
+                    <div class="theme-selector">
+                        <button class="theme-btn active" id="sb-open-btn" onclick="setSidebarDefault(false)">開く</button>
+                        <button class="theme-btn" id="sb-close-btn" onclick="setSidebarDefault(true)">閉じる</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <div class="settings-footer">
+            <button class="settings-reset-btn" onclick="resetSettings()">リセット</button>
+            <button class="settings-save-btn" onclick="toggleSettings()">閉じる</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- P14: ローディングオーバーレイ -->
+<div class="loading-overlay" id="loading-overlay" aria-hidden="true">
+    <div class="loading-content">
+        <div class="loading-spinner-lg"></div>
+        <div class="loading-text" id="loading-text">スキャン実行中...</div>
+    </div>
+</div>
+
+
+<!-- P15: 脅威スコア詳細パネル -->
+<div class="threat-detail-overlay" id="threat-detail-overlay" role="dialog" aria-modal="true" aria-label="脅威スコア詳細">
+    <div class="threat-detail-panel">
+        <div class="threat-detail-header">
+            <span class="threat-detail-title">📊 検知サマリー</span>
+            <button class="threat-detail-close" onclick="toggleThreatDetail()">✕</button>
+        </div>
+        <div class="threat-detail-body">
+            <div class="threat-summary" id="threat-summary">
+                <div class="threat-counts-box">
+                    <div class="threat-big-number" id="threat-big-danger">0</div>
+                    <div class="threat-big-label">DANGER 検知数</div>
+                    <div class="threat-danger-cats" id="threat-danger-cats-text">--</div>
+                </div>
+                <div class="threat-verdict" id="threat-verdict">スキャンを実行してください</div>
+            </div>
+            <div class="threat-stats" id="threat-stats">
+                <div class="threat-stat-row">
+                    <span class="tag-danger">DANGER</span>
+                    <span id="threat-total-danger">0</span>件
+                </div>
+                <div class="threat-stat-row">
+                    <span class="tag-warning">WARNING</span>
+                    <span id="threat-total-warning">0</span>件
+                </div>
+                <div class="threat-stat-row">
+                    <span class="tag-info">INFO</span>
+                    <span id="threat-total-info">0</span>件
+                </div>
+                <div class="threat-stat-row">
+                    <span class="tag-safe">SAFE</span>
+                    <span id="threat-total-safe">0</span>件
+                </div>
+            </div>
+            <div class="threat-correlation" id="threat-correlation" style="display:none;">
+                <div class="threat-section-title">🔗 クロスモジュール相関検知</div>
+                <ul id="threat-correlation-list"></ul>
+            </div>
+            <div class="threat-categories" id="threat-categories">
+                <div class="threat-section-title">📋 カテゴリ別内訳</div>
+                <table class="threat-cat-table">
+                    <thead><tr>
+                        <th>カテゴリ</th><th>DANGER</th><th>WARNING</th><th>合計</th>
+                    </tr></thead>
+                    <tbody id="threat-cat-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
