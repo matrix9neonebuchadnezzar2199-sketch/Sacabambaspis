@@ -378,6 +378,59 @@ def fileinspect_browse():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+@app.route('/api/fileinspect/analyze', methods=['POST'])
+def fileinspect_analyze():
+    """Deep analysis of a single file (OLE/OOXML/PDF)."""
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    if not filepath:
+        return jsonify({"status": "error", "message": "filepath is required"})
+    try:
+        result = _file_inspector.analyze_file_deep(filepath)
+        if result.get('error'):
+            return jsonify({"status": "error", "message": result['error']})
+        return jsonify({"status": "ok", "analysis": result['analysis']})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/fileinspect/inspect', methods=['POST'])
+def fileinspect_inspect():
+    """Quick inspect: basic analysis + deep analysis combined."""
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    if not filepath:
+        return jsonify({"status": "error", "message": "filepath is required"})
+    try:
+        # Basic analysis (already in P27-A)
+        basic = _file_inspector.analyze_file(filepath)
+        # Hash calculation
+        hashes = _file_inspector.get_file_hashes(filepath)
+        if hashes:
+            basic['md5'] = hashes.get('md5', '')
+            basic['sha256'] = hashes.get('sha256', '')
+        # Deep analysis (P27-B)
+        deep = _file_inspector.analyze_file_deep(filepath)
+        # Merge deep findings into basic
+        if deep.get('analysis'):
+            da = deep['analysis']
+            basic['deep_analysis'] = da
+            # Upgrade status if deep found worse
+            priority = {'DANGER': 3, 'WARNING': 2, 'INFO': 1, 'SAFE': 0}
+            if priority.get(da.get('status', ''), 0) > priority.get(basic.get('status', ''), 0):
+                basic['status'] = da['status']
+            # Merge MITRE (deduplicated)
+            existing = set(basic.get('mitre', []))
+            for m in da.get('mitre', []):
+                if m not in existing:
+                    basic.setdefault('mitre', []).append(m)
+                    existing.add(m)
+            # Merge findings
+            for f in da.get('findings', []):
+                basic.setdefault('findings', []).append(f)
+        return jsonify({"status": "ok", "result": basic})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 
 
 

@@ -3744,23 +3744,48 @@ function _fiRunInspection(targets) {
             document.getElementById('fi-inspect-status').textContent = '完了';
             setTimeout(function() { container.style.display = 'none'; }, 3000);
             fiRenderFiles();
+            fiUpdateResultSummary();
             return;
         }
         var f = targets[done];
         f.status = 'inspecting';
         fiRenderFiles();
 
-        // P27-B以降で実装するanalyze APIを呼ぶ（現在は仮のhashチェック）
-        fetch('/api/fileinspect/hashes', {
+        fetch('/api/fileinspect/inspect', {
             method: 'POST', headers: {'Content-Type':'application/json'},
             body: JSON.stringify({filepath: f.filepath})
         }).then(function(r) { return r.json(); }).then(function(res) {
             f.status = 'done';
-            f.hashes = res;
-            // 仮判定: エントロピー高 or 拡張子不一致で WARNING
-            if (!f.ext_match) { f.result = 'WARNING'; f.reason = '拡張子とファイル形式が不一致'; }
-            else if (f.entropy >= 7.5) { f.result = 'WARNING'; f.reason = '高エントロピー（パック/暗号化の疑い）'; }
-            else { f.result = 'SAFE'; f.reason = '異常なし'; }
+            if (res.status === 'ok' && res.result) {
+                var r = res.result;
+                f.result = r.status || 'SAFE';
+                f.reason = r.reason || '';
+                f.hashes = {md5: r.md5 || '', sha256: r.sha256 || ''};
+                f.findings = r.findings || [];
+                f.mitre = r.mitre || [];
+                f.deep_analysis = r.deep_analysis || null;
+
+                // Build reason from findings if no explicit reason
+                if (!f.reason && f.findings.length > 0) {
+                    var dangers = f.findings.filter(function(x) { return x.type === 'DANGER'; });
+                    var warnings = f.findings.filter(function(x) { return x.type === 'WARNING'; });
+                    if (dangers.length > 0) {
+                        f.reason = dangers[0].detail;
+                    } else if (warnings.length > 0) {
+                        f.reason = warnings[0].detail;
+                    } else {
+                        f.reason = f.findings[0].detail;
+                    }
+                }
+                if (!f.reason) {
+                    if (!f.ext_match) { f.reason = '拡張子とファイル形式が不一致'; }
+                    else if (f.entropy >= 7.5) { f.reason = '高エントロピー'; }
+                    else { f.reason = '異常なし'; }
+                }
+            } else {
+                f.result = 'INFO';
+                f.reason = res.message || '検査エラー';
+            }
             done++;
             var pct = Math.round((done / total) * 100);
             document.getElementById('fi-progress-label').textContent = '検査中... ' + done + '/' + total + ' - ' + f.filename;
@@ -3770,13 +3795,14 @@ function _fiRunInspection(targets) {
         }).catch(function(e) {
             f.status = 'done';
             f.result = 'INFO';
-            f.reason = '検査エラー';
+            f.reason = '通信エラー';
             done++;
             next();
         });
     }
     next();
 }
+
 
 function fiUpdateResultSummary() {
     var danger = _fiFiles.filter(function(f) { return f.result === 'DANGER'; }).length;
@@ -3800,38 +3826,266 @@ function fiUpdateResultSummary() {
 function fiOpenDetail(idx) {
     var f = _fiFiles[idx];
     if (!f) return;
+
+    // MITRE ATT&CK 解説辞書
+    var mitreDict = {
+        'T1059': {name: 'Command and Scripting Interpreter', jp: 'コマンド・スクリプト実行', desc: '攻撃者がシステム上でコマンドやスクリプトを実行する手法です。シェル、PowerShell、VBScript等が利用されます。'},
+        'T1059.001': {name: 'PowerShell', jp: 'PowerShell実行', desc: 'PowerShellを使用してコマンドやスクリプトを実行します。ログ収集・偵察・マルウェアダウンロード等に悪用されます。'},
+        'T1059.003': {name: 'Windows Command Shell', jp: 'コマンドプロンプト実行', desc: 'cmd.exeを使用してコマンドを実行します。バッチ処理やシステム操作に利用されます。'},
+        'T1059.005': {name: 'Visual Basic', jp: 'VBScript/VBAマクロ実行', desc: 'VBScriptやVBAマクロを利用した攻撃です。Office文書のマクロが最も一般的な攻撃経路です。'},
+        'T1059.007': {name: 'JavaScript', jp: 'JavaScript実行', desc: 'JavaScriptを利用してコードを実行します。PDF内やHTML内のスクリプトが対象です。'},
+        'T1071.001': {name: 'Web Protocols', jp: 'Web通信プロトコル悪用', desc: 'HTTP/HTTPSを利用してC2（指令）サーバーと通信します。正規通信に偽装するため検知が困難です。'},
+        'T1105': {name: 'Ingress Tool Transfer', jp: 'ツール転送・ダウンロード', desc: '外部サーバーから追加のマルウェアやツールをダウンロードします。初期侵入後の攻撃拡大に使用されます。'},
+        'T1106': {name: 'Native API', jp: 'ネイティブAPI呼び出し', desc: 'Windows APIを直接呼び出して低レベルのシステム操作を行います。セキュリティ製品の回避に利用されます。'},
+        'T1027': {name: 'Obfuscated Files or Information', jp: 'ファイル・情報の難読化', desc: 'マルウェアのコードやデータを難読化して検知を回避します。Base64エンコード、暗号化、パッキング等が使われます。'},
+        'T1027.001': {name: 'Binary Padding', jp: 'バイナリパディング', desc: 'ファイル内に無意味なデータを追加してハッシュ値を変更し、シグネチャ検知を回避します。'},
+        'T1027.002': {name: 'Software Packing', jp: 'ソフトウェアパッキング', desc: '実行ファイルを圧縮・暗号化パッカーで保護し、静的解析やシグネチャ検知を回避します。'},
+        'T1036.007': {name: 'Double File Extension', jp: '二重拡張子による偽装', desc: 'ファイル名に二重の拡張子（例: document.pdf.exe）を使用して、実行ファイルを文書ファイルに偽装します。'},
+        'T1055': {name: 'Process Injection', jp: 'プロセスインジェクション', desc: '正規プロセスにコードを注入して実行します。検知回避と権限昇格に利用されます。'},
+        'T1082': {name: 'System Information Discovery', jp: 'システム情報の探索', desc: 'OS情報、ハードウェア情報、環境変数等のシステム情報を収集します。攻撃の偵察段階で使用されます。'},
+        'T1132.001': {name: 'Standard Encoding', jp: '標準エンコーディング', desc: 'Base64等の標準エンコーディングでC2通信データを符号化し、内容を隠蔽します。'},
+        'T1140': {name: 'Deobfuscate/Decode Files or Information', jp: '難読化解除・デコード', desc: '難読化やエンコードされたペイロードを実行時にデコードします。検知回避の手法です。'},
+        'T1203': {name: 'Exploitation for Client Execution', jp: 'クライアント脆弱性の悪用', desc: 'ブラウザやOffice等のクライアントソフトウェアの脆弱性を悪用してコードを実行します。'},
+        'T1204.002': {name: 'Malicious File', jp: '悪意あるファイルの実行誘導', desc: 'ユーザーに悪意あるファイルを開かせてコードを実行させます。メール添付やダウンロードが主な経路です。'},
+        'T1221': {name: 'Template Injection', jp: 'テンプレートインジェクション', desc: 'Office文書が外部サーバーからテンプレートを読み込む機能を悪用します。マクロ無効化を回避して悪意あるコードを実行できる危険な手法です。'},
+        'T1505.003': {name: 'Web Shell', jp: 'Webシェル', desc: 'Webサーバーにバックドアスクリプトを設置し、リモートからコマンドを実行します。'},
+        'T1547.001': {name: 'Registry Run Keys', jp: 'レジストリRun キー永続化', desc: 'レジストリのRun/RunOnceキーにプログラムを登録し、システム起動時に自動実行させます。'},
+        'T1559.001': {name: 'Component Object Model', jp: 'COMオブジェクト悪用', desc: 'COMオブジェクトを利用してプロセス間通信やコード実行を行います。'},
+        'T1048': {name: 'Exfiltration Over Alternative Protocol', jp: '代替プロトコルによるデータ持ち出し', desc: '標準的でないプロトコルやチャネルを使用してデータを外部に送信します。'},
+    };
+
+    // リスク解説辞書
+    var riskExplain = {
+        'DANGER': {icon: '🔴', label: '危険', color: 'var(--accent-error)', desc: 'このファイルには悪意あるコードや危険な構造が検出されました。開封・実行しないでください。隔離または削除を推奨します。'},
+        'WARNING': {icon: '🟡', label: '警告', color: 'var(--accent-warning)', desc: 'このファイルには注意が必要な要素が含まれています。意図的な利用でない場合は、専門家に相談してください。'},
+        'SAFE': {icon: '🟢', label: '安全', color: 'var(--accent-success)', desc: '現在の検査では危険な要素は検出されませんでした。ただし、未知の脅威が含まれる可能性は排除できません。'},
+        'INFO': {icon: 'ℹ️', label: '情報', color: 'var(--accent-info)', desc: '参考情報です。直接的な危険は検出されていませんが、内容を確認してください。'},
+    };
+
     var w = window.open('', '_blank', 'width=' + screen.availWidth + ',height=' + screen.availHeight);
     var css = document.querySelector('link[rel="stylesheet"]');
     var cssHref = css ? css.href : '';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>File Inspector - ' + f.filename + '</title>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>ファイル検査詳細 - ' + f.filename + '</title>');
     if (cssHref) w.document.write('<link rel="stylesheet" href="' + cssHref + '">');
-    w.document.write('<style>body{background:var(--bg-primary);color:var(--text-primary);padding:20px;margin:0;font-family:inherit;} .fi-section{margin:16px 0;padding:12px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-primary);} .fi-section h3{margin:0 0 8px 0;color:var(--accent-info);} .fi-code{background:var(--bg-tertiary);padding:12px;border-radius:4px;font-family:monospace;font-size:0.82rem;white-space:pre-wrap;overflow:auto;max-height:400px;} table{width:100%;border-collapse:collapse;} td,th{padding:6px 10px;border-bottom:1px solid var(--border-primary);text-align:left;}</style>');
+    w.document.write('<style>body{background:var(--bg-primary);color:var(--text-primary);padding:20px;margin:0;font-family:inherit;} .fi-section{margin:16px 0;padding:16px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-primary);} .fi-section h3{margin:0 0 12px 0;color:var(--accent-info);font-size:1.1em;} .fi-code{background:var(--bg-tertiary);padding:12px;border-radius:4px;font-family:monospace;font-size:0.82rem;white-space:pre-wrap;overflow:auto;max-height:400px;} table{width:100%;border-collapse:collapse;} td,th{padding:8px 12px;border-bottom:1px solid var(--border-primary);text-align:left;vertical-align:top;} td:first-child{min-width:160px;white-space:nowrap;} .finding-danger{color:var(--accent-error);} .finding-warning{color:var(--accent-warning);} .finding-info{color:var(--accent-info);} .risk-box{padding:16px;border-radius:8px;margin:8px 0;} .mitre-card{background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:6px;padding:10px 14px;margin:6px 0;} .mitre-id{font-weight:bold;color:var(--accent-warning);font-size:0.95em;} .mitre-name{color:var(--accent-info);} .mitre-desc{color:var(--text-secondary);font-size:0.88em;margin-top:4px;line-height:1.5;} .explain-text{color:var(--text-secondary);font-size:0.9em;line-height:1.6;margin:6px 0;padding:8px 12px;background:var(--bg-tertiary);border-radius:4px;border-left:3px solid var(--accent-info);}</style>');
     w.document.write('</head><body data-theme="dark">');
-    w.document.write('<h2>📋 検査詳細: ' + f.filename + '</h2>');
+    w.document.write('<h2>📋 ファイル検査詳細レポート</h2>');
 
-    // Basic info
+    // ===== 1. ファイル基本情報 =====
     w.document.write('<div class="fi-section"><h3>■ ファイル基本情報</h3><table>');
-    w.document.write('<tr><td><b>ファイル名</b></td><td>' + f.filename + '</td></tr>');
-    w.document.write('<tr><td><b>パス</b></td><td>' + f.filepath + '</td></tr>');
-    w.document.write('<tr><td><b>サイズ</b></td><td>' + f.size + '</td></tr>');
-    w.document.write('<tr><td><b>更新日時</b></td><td>' + f.mtime + '</td></tr>');
-    w.document.write('<tr><td><b>種別</b></td><td>' + f.type_icon + ' ' + f.type_label + ' (' + f.type + ')</td></tr>');
-    w.document.write('<tr><td><b>エントロピー</b></td><td>' + f.entropy + '</td></tr>');
-    w.document.write('<tr><td><b>拡張子一致</b></td><td>' + (f.ext_match ? '✅ 一致' : '❌ 不一致') + '</td></tr>');
+    w.document.write('<tr><td style="width:160px;white-space:nowrap;"><b>ファイル名</b></td><td>' + f.filename + '</td></tr>');
+    w.document.write('<tr><td style="white-space:nowrap;"><b>フルパス</b></td><td style="word-break:break-all;">' + f.filepath + '</td></tr>');
+    w.document.write('<tr><td style="white-space:nowrap;"><b>ファイルサイズ</b></td><td>' + f.size + '</td></tr>');
+    w.document.write('<tr><td style="white-space:nowrap;"><b>最終更新日時</b></td><td>' + f.mtime + '</td></tr>');
+    w.document.write('<tr><td style="white-space:nowrap;"><b>ファイル種別</b></td><td>' + f.type_icon + ' ' + f.type_label + ' (' + f.type + ')</td></tr>');
+    var entColor = f.entropy >= 7.5 ? 'var(--accent-error)' : f.entropy >= 7.0 ? 'var(--accent-warning)' : 'inherit';
+    w.document.write('<tr><td style="white-space:nowrap;"><b>エントロピー</b></td><td><span style="color:' + entColor + ';">' + f.entropy + '</span>');
+    if (f.entropy >= 7.5) w.document.write(' <span style="color:var(--accent-error);">⚠ 非常に高い（暗号化/パッキングの疑い）</span>');
+    else if (f.entropy >= 7.0) w.document.write(' <span style="color:var(--accent-warning);">⚠ やや高い</span>');
+    else w.document.write(' <span style="color:var(--text-secondary);">正常範囲</span>');
+    w.document.write('</td></tr>');
+    w.document.write('<tr><td style="white-space:nowrap;"><b>拡張子一致</b></td><td>' + (f.ext_match ? '✅ 一致（正常）' : '❌ 不一致 - ファイルの実際の形式と拡張子が異なります。偽装の可能性があります。') + '</td></tr>');
     if (f.hashes) {
-        w.document.write('<tr><td><b>MD5</b></td><td style="font-family:monospace;">' + (f.hashes.md5 || 'N/A') + '</td></tr>');
-        w.document.write('<tr><td><b>SHA256</b></td><td style="font-family:monospace;">' + (f.hashes.sha256 || 'N/A') + '</td></tr>');
+        w.document.write('<tr><td style="white-space:nowrap;"><b>MD5</b></td><td style="font-family:monospace;font-size:0.85em;">' + (f.hashes.md5 || 'N/A') + '</td></tr>');
+        w.document.write('<tr><td style="white-space:nowrap;"><b>SHA256</b></td><td style="font-family:monospace;font-size:0.85em;">' + (f.hashes.sha256 || 'N/A') + '</td></tr>');
     }
     w.document.write('</table></div>');
 
-    // Result
-    w.document.write('<div class="fi-section"><h3>■ 検査結果</h3>');
-    w.document.write('<p><b>判定:</b> ' + (f.result || '-') + '</p>');
-    w.document.write('<p><b>理由:</b> ' + (f.reason || '-') + '</p>');
-    w.document.write('<p style="color:var(--text-secondary);">※ P27-B以降で構造解析・YARA スキャン結果がここに表示されます。</p>');
+    // ===== 2. 総合判定 =====
+    var ri = riskExplain[f.result] || riskExplain['INFO'];
+    w.document.write('<div class="fi-section"><h3>■ 総合判定</h3>');
+    w.document.write('<div class="risk-box" style="border:2px solid ' + ri.color + ';background:' + ri.color + '15;">');
+    w.document.write('<p style="font-size:1.3em;font-weight:bold;color:' + ri.color + ';margin:0 0 8px 0;">' + ri.icon + ' ' + ri.label + '（' + (f.result || '-') + '）</p>');
+    w.document.write('<p style="margin:0 0 8px 0;font-size:1em;">' + ri.desc + '</p>');
+    w.document.write('<p style="margin:0;"><b>検出理由:</b> ' + (f.reason || '情報なし') + '</p>');
     w.document.write('</div>');
 
-    w.document.write('<div style="margin-top:16px;"><button onclick="window.print()" style="padding:8px 16px;cursor:pointer;">🖨️ 印刷</button> <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">✕ 閉じる</button></div>');
+    // 推奨対応
+    if (f.result === 'DANGER') {
+        w.document.write('<div class="explain-text" style="border-left-color:var(--accent-error);">');
+        w.document.write('<b>🚨 推奨対応:</b><br>');
+        w.document.write('1. このファイルを絶対に開かないでください<br>');
+        w.document.write('2. ファイルを隔離フォルダに移動するか、削除してください<br>');
+        w.document.write('3. このファイルの入手経路（メール添付、USB、ダウンロード等）を特定してください<br>');
+        w.document.write('4. 同じ経路から取得した他のファイルも検査してください<br>');
+        w.document.write('5. 組織のセキュリティ担当者またはCSIRTに報告してください');
+        w.document.write('</div>');
+    } else if (f.result === 'WARNING') {
+        w.document.write('<div class="explain-text" style="border-left-color:var(--accent-warning);">');
+        w.document.write('<b>⚠ 推奨対応:</b><br>');
+        w.document.write('1. ファイルの送信元・入手経路を確認してください<br>');
+        w.document.write('2. 業務上必要なファイルか確認してください<br>');
+        w.document.write('3. 不審な場合はセキュリティ担当者に相談してください');
+        w.document.write('</div>');
+    }
+    w.document.write('</div>');
+
+    // ===== 3. MITRE ATT&CK 解説 =====
+    if (f.mitre && f.mitre.length > 0) {
+        w.document.write('<div class="fi-section"><h3>■ MITRE ATT&CK マッピング（' + f.mitre.length + '件）</h3>');
+        w.document.write('<div class="explain-text">MITRE ATT&CKは、サイバー攻撃の手法を体系的に分類したフレームワークです。検出された手法が攻撃のどの段階に該当するかを示します。</div>');
+        for (var mi = 0; mi < f.mitre.length; mi++) {
+            var mid = f.mitre[mi];
+            var minfo = mitreDict[mid];
+            w.document.write('<div class="mitre-card">');
+            if (minfo) {
+                w.document.write('<span class="mitre-id">' + mid + '</span> ');
+                w.document.write('<span class="mitre-name">' + minfo.name + '</span>');
+                w.document.write('<br><b style="color:var(--text-primary);">' + minfo.jp + '</b>');
+                w.document.write('<div class="mitre-desc">' + minfo.desc + '</div>');
+            } else {
+                w.document.write('<span class="mitre-id">' + mid + '</span> <span style="color:var(--text-secondary);">（詳細情報なし）</span>');
+            }
+            w.document.write('</div>');
+        }
+        w.document.write('</div>');
+    }
+
+    // ===== 4. 検出項目一覧 =====
+    if (f.findings && f.findings.length > 0) {
+        w.document.write('<div class="fi-section"><h3>■ 検出項目（' + f.findings.length + '件）</h3>');
+        w.document.write('<div class="explain-text">以下はファイル内部を解析して検出された項目です。DANGERは悪意あるコードの兆候、WARNINGは注意が必要な要素、INFOは参考情報を示します。</div>');
+        w.document.write('<table><tr><th style="width:80px;">レベル</th><th>検出内容</th></tr>');
+        for (var i = 0; i < f.findings.length; i++) {
+            var fi = f.findings[i];
+            var cls = fi.type === 'DANGER' ? 'finding-danger' : fi.type === 'WARNING' ? 'finding-warning' : 'finding-info';
+            var icon = fi.type === 'DANGER' ? '🔴' : fi.type === 'WARNING' ? '🟡' : 'ℹ️';
+            var typeLabel = fi.type === 'DANGER' ? '危険' : fi.type === 'WARNING' ? '警告' : '情報';
+            w.document.write('<tr><td class="' + cls + '" style="white-space:nowrap;">' + icon + ' ' + typeLabel + '</td><td>' + fi.detail + '</td></tr>');
+        }
+        w.document.write('</table></div>');
+    }
+
+    // ===== 5. 構造解析詳細 =====
+    var da = f.deep_analysis;
+    if (da) {
+        // --- OLE ---
+        if (da.type === 'OLE') {
+            w.document.write('<div class="fi-section"><h3>■ OLE構造解析</h3>');
+            w.document.write('<div class="explain-text">OLE（Object Linking and Embedding）は旧形式のOffice文書（.doc, .xls, .ppt）で使用されるファイル形式です。VBAマクロを埋め込むことができ、マルウェアの配布に頻繁に悪用されます。</div>');
+            if (da.ole_version) w.document.write('<p><b>バージョン:</b> ' + da.ole_version + '</p>');
+            if (da.streams && da.streams.length > 0) {
+                w.document.write('<p><b>ストリーム一覧（' + da.streams.length + '件）:</b></p>');
+                w.document.write('<div class="explain-text">OLEファイル内部は「ストリーム」と呼ばれる複数のデータ領域で構成されます。VBA関連のストリームにマクロコードが格納されます。</div>');
+                w.document.write('<table><tr><th>ストリーム名</th><th style="width:100px;">サイズ</th></tr>');
+                for (var s = 0; s < da.streams.length; s++) {
+                    var sname = da.streams[s].name;
+                    var highlight = sname.toLowerCase().indexOf('vba') >= 0 ? ' style="color:var(--accent-warning);font-weight:bold;"' : '';
+                    w.document.write('<tr><td' + highlight + '>' + sname + '</td><td>' + da.streams[s].size + ' B</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.auto_exec && da.auto_exec.length > 0) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-error);"><b>⚠ 自動実行トリガー検出:</b> ' + da.auto_exec.join(', ') + '<br>これらのトリガーにより、ファイルを開いただけでマクロが自動的に実行されます。ユーザーの操作なしに攻撃コードが動作する最も危険なパターンです。</div>');
+            }
+            if (da.suspicious_keywords && da.suspicious_keywords.length > 0) {
+                w.document.write('<p><b>危険キーワード検出:</b></p>');
+                w.document.write('<table><tr><th style="width:180px;">キーワード</th><th>危険性の説明</th></tr>');
+                for (var k = 0; k < da.suspicious_keywords.length; k++) {
+                    w.document.write('<tr><td style="color:var(--accent-warning);font-weight:bold;">' + da.suspicious_keywords[k].keyword + '</td><td>' + da.suspicious_keywords[k].description + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.external_links && da.external_links.length > 0) {
+                w.document.write('<p><b>外部リンク（無害化表示）:</b></p>');
+                w.document.write('<div class="explain-text">以下のURLはドキュメント内に埋め込まれた外部参照です。安全のため無害化（hXXp, [.]）して表示しています。</div>');
+                w.document.write('<ul>');
+                for (var l = 0; l < da.external_links.length; l++) {
+                    w.document.write('<li style="word-break:break-all;font-family:monospace;font-size:0.85em;">' + da.external_links[l] + '</li>');
+                }
+                w.document.write('</ul>');
+            }
+            if (da.macros && da.macros.length > 0) {
+                w.document.write('<p><b>VBAマクロコード:</b></p>');
+                w.document.write('<div class="explain-text">以下は文書内に埋め込まれたVBAマクロの実際のコードです。Shellコマンド、ダウンロード処理、レジストリ操作等の危険な処理が含まれていないか確認してください。</div>');
+                for (var m = 0; m < da.macros.length; m++) {
+                    var mc = da.macros[m];
+                    w.document.write('<p><b>📄 ' + mc.stream + '</b>（' + mc.size + ' bytes）</p>');
+                    w.document.write('<div class="fi-code" id="macro-code-' + m + '">' + mc.code_preview.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>');
+                    w.document.write('<div style="margin:8px 0;"><button onclick="var t=document.getElementById(\'macro-code-' + m + '\').textContent;var b=new Blob([t],{type:\'text/plain\'});var a=document.createElement(\'a\');a.href=URL.createObjectURL(b);a.download=\'' + f.filename + '_macro_' + m + '.txt\';a.click();" style="padding:6px 14px;cursor:pointer;">💾 コード抽出（.txt）</button> ');
+                    w.document.write('<button onclick="navigator.clipboard.writeText(document.getElementById(\'macro-code-' + m + '\').textContent);alert(\'クリップボードにコピーしました\');" style="padding:6px 14px;cursor:pointer;">📋 コピー</button></div>');
+                }
+            }
+            w.document.write('</div>');
+        }
+
+        // --- OOXML ---
+        if (da.type === 'OOXML') {
+            w.document.write('<div class="fi-section"><h3>■ OOXML構造解析</h3>');
+            w.document.write('<div class="explain-text">OOXML（Office Open XML）は新形式のOffice文書（.docx, .xlsx, .pptx）で使用されるZIPベースのファイル形式です。内部にVBAプロジェクト、ActiveXコントロール、外部テンプレート参照が含まれる場合があります。</div>');
+            if (da.entries && da.entries.length > 0) {
+                w.document.write('<p><b>ZIP エントリ一覧（' + da.entries.length + '件）:</b></p>');
+                w.document.write('<table><tr><th>エントリ名</th><th style="width:100px;">サイズ</th></tr>');
+                for (var e = 0; e < Math.min(da.entries.length, 30); e++) {
+                    var ename = da.entries[e].name;
+                    var ehighlight = (ename.toLowerCase().indexOf('vba') >= 0 || ename.toLowerCase().indexOf('activex') >= 0) ? ' style="color:var(--accent-warning);font-weight:bold;"' : '';
+                    w.document.write('<tr><td' + ehighlight + '>' + ename + '</td><td>' + da.entries[e].size + ' B</td></tr>');
+                }
+                if (da.entries.length > 30) w.document.write('<tr><td colspan="2" style="color:var(--text-secondary);">... 他 ' + (da.entries.length - 30) + ' エントリ</td></tr>');
+                w.document.write('</table>');
+            }
+            if (da.activex) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-warning);"><b>⚠ ActiveX コントロール検出</b><br>ActiveXはWindowsの機能拡張技術ですが、脆弱性を悪用したコード実行に利用されることがあります。</div>');
+            }
+            if (da.external_links && da.external_links.length > 0) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-error);"><b>🚨 外部テンプレート/リンクインジェクション検出</b><br>この文書は外部サーバーからテンプレートを読み込む設定が含まれています。テンプレートインジェクション攻撃により、マクロセキュリティ設定を回避して悪意あるコードを実行される可能性があります。</div>');
+                w.document.write('<p><b>外部参照先（無害化表示）:</b></p><ul>');
+                for (var l = 0; l < da.external_links.length; l++) {
+                    w.document.write('<li style="word-break:break-all;font-family:monospace;font-size:0.85em;">' + da.external_links[l] + '</li>');
+                }
+                w.document.write('</ul>');
+            }
+            if (da.macros && da.macros.length > 0) {
+                w.document.write('<p><b>VBAプロジェクト:</b></p>');
+                for (var m = 0; m < da.macros.length; m++) {
+                    var mc = da.macros[m];
+                    w.document.write('<p><b>📄 ' + mc.file + '</b>（' + mc.size + ' bytes）</p>');
+                    w.document.write('<div class="fi-code" id="ooxml-code-' + m + '">' + mc.code_preview.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>');
+                    w.document.write('<div style="margin:8px 0;"><button onclick="var t=document.getElementById(\'ooxml-code-' + m + '\').textContent;var b=new Blob([t],{type:\'text/plain\'});var a=document.createElement(\'a\');a.href=URL.createObjectURL(b);a.download=\'' + f.filename + '_macro_' + m + '.txt\';a.click();" style="padding:6px 14px;cursor:pointer;">💾 コード抽出（.txt）</button></div>');
+                }
+            }
+            w.document.write('</div>');
+        }
+
+        // --- PDF ---
+        if (da.type === 'PDF') {
+            w.document.write('<div class="fi-section"><h3>■ PDF構造解析</h3>');
+            w.document.write('<div class="explain-text">PDF（Portable Document Format）はAdobe社が開発した文書形式です。JavaScript実行、ファイル埋め込み、フォーム送信、外部プログラム起動等の機能を持ち、これらがマルウェア配布に悪用されることがあります。</div>');
+            if (da.version) w.document.write('<p><b>PDFバージョン:</b> ' + da.version + '</p>');
+            w.document.write('<p><b>ページ数:</b> ' + (da.pages || 'N/A') + ' / <b>オブジェクト数:</b> ' + (da.objects || 'N/A') + '</p>');
+            if (da.suspicious_objects && da.suspicious_objects.length > 0) {
+                w.document.write('<p><b>危険なPDFオブジェクト:</b></p>');
+                w.document.write('<div class="explain-text">PDFの内部構造にはさまざまなオブジェクトタイプが存在します。以下のオブジェクトは攻撃に悪用される可能性があるものです。</div>');
+                w.document.write('<table><tr><th style="width:120px;">キーワード</th><th style="width:60px;">検出数</th><th>危険性の説明</th></tr>');
+                for (var o = 0; o < da.suspicious_objects.length; o++) {
+                    var so = da.suspicious_objects[o];
+                    w.document.write('<tr><td style="color:var(--accent-warning);font-weight:bold;">' + so.keyword + '</td><td>' + so.count + '</td><td>' + so.description + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.javascript && da.javascript.length > 0) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-error);"><b>🚨 JavaScriptコード検出（' + da.javascript.length + 'ブロック）</b><br>PDF内にJavaScriptが埋め込まれています。正規のフォームバリデーション等に使用されることもありますが、脆弱性の悪用やマルウェアのダウンロードに利用されるケースが多いです。</div>');
+                for (var j = 0; j < da.javascript.length; j++) {
+                    w.document.write('<p><b>JavaScriptブロック #' + (j+1) + ':</b></p>');
+                    w.document.write('<div class="fi-code" id="pdf-js-' + j + '">' + da.javascript[j].replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>');
+                    w.document.write('<div style="margin:8px 0;"><button onclick="var t=document.getElementById(\'pdf-js-' + j + '\').textContent;var b=new Blob([t],{type:\'text/plain\'});var a=document.createElement(\'a\');a.href=URL.createObjectURL(b);a.download=\'' + f.filename + '_javascript_' + j + '.txt\';a.click();" style="padding:6px 14px;cursor:pointer;">💾 コード抽出（.txt）</button></div>');
+                }
+            }
+            if (da.uris && da.uris.length > 0) {
+                w.document.write('<p><b>URI一覧（' + da.uris.length + '件）:</b></p>');
+                w.document.write('<div class="explain-text">PDF内に埋め込まれたURLです。フィッシングサイトやマルウェア配布サイトへの誘導に使用される場合があります。</div>');
+                w.document.write('<ul>');
+                for (var u = 0; u < da.uris.length; u++) {
+                    w.document.write('<li style="word-break:break-all;font-family:monospace;font-size:0.85em;">' + da.uris[u] + '</li>');
+                }
+                w.document.write('</ul>');
+            }
+            w.document.write('</div>');
+        }
+    }
+
+    // ===== 6. ボタン =====
+    w.document.write('<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-primary);"><button onclick="window.print()" style="padding:8px 18px;cursor:pointer;margin-right:8px;">🖨️ 印刷</button> <button onclick="window.close()" style="padding:8px 18px;cursor:pointer;">✕ 閉じる</button></div>');
     w.document.write('</body></html>');
     w.document.close();
 }
