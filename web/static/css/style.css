@@ -2669,3 +2669,29 @@ th[data-sortable]:hover .sort-arrow {
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; }
 }
+
+/* ============================================
+   P27: File Inspector
+   ============================================ */
+
+#tab-fileinspect table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+#tab-fileinspect td,
+#tab-fileinspect th {
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Spinner animation for inspecting state */
+.fi-spinner {
+    display: inline-block;
+    animation: fi-spin 1s linear infinite;
+}
+
+@keyframes fi-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

@@ -330,6 +330,54 @@ def memdump_hex():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+# ============================================
+# P27: File Inspector API
+# ============================================
+from collectors.file_inspector import FileInspector
+_file_inspector = FileInspector()
+
+@app.route('/api/fileinspect/list', methods=['POST'])
+def fileinspect_list():
+    data = request.get_json()
+    folder = data.get('folder', '')
+    include_sub = data.get('include_subfolders', False)
+    if not folder:
+        return jsonify({"status": "error", "message": "folder is required"})
+    try:
+        result = _file_inspector.list_folder(folder, include_sub)
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/fileinspect/hashes', methods=['POST'])
+def fileinspect_hashes():
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    if not filepath:
+        return jsonify({"status": "error", "message": "filepath is required"})
+    try:
+        hashes = _file_inspector.get_file_hashes(filepath)
+        return jsonify({"status": "ok", **hashes})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/fileinspect/browse')
+def fileinspect_browse():
+    """Open native folder selection dialog."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        folder = filedialog.askdirectory(title='検査対象フォルダを選択')
+        root.destroy()
+        if folder:
+            return jsonify({"status": "ok", "folder": folder})
+        return jsonify({"status": "cancelled"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 
 
 

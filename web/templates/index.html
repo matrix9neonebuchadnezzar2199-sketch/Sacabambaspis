@@ -394,6 +394,11 @@
                 <span class="sidebar-item-text">メモリ抽出</span>
             </div>
 
+            <div class="sidebar-item" data-tab="fileinspect" onclick="switchTab('fileinspect', this)">
+                <span class="sidebar-item-icon">📂</span>
+                <span class="sidebar-item-text">ファイル検査</span>
+            </div>
+
             <div class="sidebar-divider"></div>
             <div class="sidebar-section-label">管理</div>
             <div class="sidebar-item" data-tab="important" onclick="switchTab('important', this)">
@@ -1050,6 +1055,72 @@
                         </div>
                         <div id="memdump-hex-view" class="memdump-hex-container"></div>
                     </div>
+                </div>
+            </div>
+            <!-- P27: ファイル検査タブ -->
+            <div id="tab-fileinspect" aria-label="ファイル検査" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">📂 ファイル検査</span>
+                    フォルダ内のファイルを構造解析し、悪意あるコード（マクロ、スクリプト、埋め込みコード等）を検出します。<br>
+                    <span style="color:var(--accent-warning);">⚠ OLE文書・PDF・画像・スクリプト・実行ファイル等に対応。YARA スキャンはルール読み込み後に有効になります。</span>
+                </div>
+
+                <!-- フォルダ選択コントロール -->
+                <div style="padding:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--border-primary);">
+                    <input type="hidden" id="fi-folder-path">
+                    <button class="load-btn" onclick="fiBrowseFolder()" style="font-size:0.9rem;">📁 フォルダを選択</button>
+                    <span id="fi-folder-display" class="cell-sub" style="font-family:monospace;"></span>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; margin-left:auto;" class="cell-sub">
+                        <input type="checkbox" id="fi-include-sub"> サブフォルダも含める
+                    </label>
+                </div>
+
+
+                <!-- サマリーバー -->
+                <div id="fi-summary" style="padding:6px 12px; display:none; border-bottom:1px solid var(--border-primary); display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+                    <span id="fi-summary-text" class="cell-sub"></span>
+                    <button class="filter-btn" onclick="fiInspectAll()" style="border-color:var(--accent-error); color:var(--accent-error); font-weight:bold;">⚡ 全ファイル検査実行</button>
+                    <button class="filter-btn" onclick="fiInspectSelected()">🔍 選択のみ検査</button>
+                    <input type="text" id="fi-search" class="search-input" placeholder="検索..." onkeyup="fiFilterFiles()" style="max-width:200px;">
+                    <button class="filter-btn" id="fi-btn-pending" onclick="fiToggleFilter('pending')">🔲 未検査のみ (OFF)</button>
+                    <button class="filter-btn" id="fi-btn-danger" onclick="fiToggleFilter('danger')">🔴 危険のみ (OFF)</button>
+                    <span id="fi-inspect-status" class="cell-sub" style="margin-left:auto;"></span>
+                </div>
+
+                <!-- 検査進捗バー -->
+                <div id="fi-progress-container" style="display:none; padding:6px 12px;">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">
+                        <span id="fi-progress-label" style="font-weight:bold; color:var(--accent-info);">検査中...</span>
+                        <span id="fi-progress-pct" class="cell-sub">0%</span>
+                    </div>
+                    <div style="background:var(--bg-tertiary); border-radius:4px; height:6px; overflow:hidden;">
+                        <div id="fi-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--accent-info), var(--accent-success)); transition:width 0.3s;"></div>
+                    </div>
+                </div>
+
+                <!-- ファイルリストテーブル -->
+                <div class="data-table-wrapper" style="max-height:60vh; overflow-y:auto;" data-scrollable>
+                    <table>
+                        <thead><tr>
+                            <th style="width:40px;">☑</th>
+                            <th style="width:40px;">#</th>
+                            <th>ファイル名</th>
+                            <th style="width:90px;">種別</th>
+                            <th style="width:80px;">サイズ</th>
+                            <th style="width:120px;">更新日時</th>
+                            <th style="width:70px;">エントロピー</th>
+                            <th style="width:70px;">拡張子一致</th>
+                            <th style="width:80px;">検査状態</th>
+                            <th style="width:70px;">判定</th>
+                            <th style="width:70px;">操作</th>
+                        </tr></thead>
+                        <tbody id="fi-file-list"></tbody>
+                    </table>
+                </div>
+
+                <!-- サマリーフッター -->
+                <div id="fi-result-summary" style="padding:6px 12px; border-top:1px solid var(--border-primary); display:none;">
+                    <span id="fi-result-summary-text" class="cell-sub"></span>
                 </div>
             </div>
 
@@ -3505,6 +3576,267 @@ function memdumpOpenFull(subtab) {
     w.document.write('</body></html>');
     w.document.close();
 }
+
+
+// ============================================
+// P27: File Inspector Functions
+// ============================================
+var _fiFiles = [];
+var _fiFilterPending = false;
+var _fiFilterDanger = false;
+
+function fiBrowseFolder() {
+    fetch('/api/fileinspect/browse').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'ok' && res.folder) {
+            document.getElementById('fi-folder-path').value = res.folder;
+            document.getElementById('fi-folder-display').textContent = res.folder;
+            fiLoadFolder();
+        }
+    }).catch(function(e) { alert('フォルダ選択ダイアログを開けませんでした'); });
+}
+
+
+
+function fiLoadFolder() {
+    var folder = document.getElementById('fi-folder-path').value.trim();
+    if (!folder) { alert('フォルダパスを入力してください'); return; }
+    var includeSub = document.getElementById('fi-include-sub').checked;
+    var el = document.getElementById('fi-file-list');
+    el.innerHTML = '<tr><td colspan="11" style="text-align:center;">読み込み中...</td></tr>';
+    document.getElementById('fi-summary').style.display = 'flex';
+    document.getElementById('fi-summary-text').textContent = '読み込み中...';
+
+    fetch('/api/fileinspect/list', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({folder: folder, include_subfolders: includeSub})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status !== 'ok') {
+            el.innerHTML = '<tr><td colspan="11">エラー: ' + (res.error || res.message || '') + '</td></tr>';
+            document.getElementById('fi-summary-text').textContent = 'エラー';
+            return;
+        }
+        _fiFiles = res.files || [];
+        document.getElementById('fi-summary-text').textContent =
+            'ファイル数: ' + res.file_count + ' / フォルダ数: ' + res.folder_count + ' / 合計サイズ: ' + res.total_size;
+        fiRenderFiles();
+    }).catch(function(e) {
+        el.innerHTML = '<tr><td colspan="11">通信エラー</td></tr>';
+    });
+}
+
+function fiRenderFiles() {
+    var el = document.getElementById('fi-file-list');
+    var keyword = (document.getElementById('fi-search').value || '').toLowerCase();
+    var list = _fiFiles;
+
+    if (keyword) {
+        list = list.filter(function(f) {
+            return f.filename.toLowerCase().includes(keyword) || f.type_label.toLowerCase().includes(keyword);
+        });
+    }
+    if (_fiFilterPending) list = list.filter(function(f) { return f.status === 'pending'; });
+    if (_fiFilterDanger) list = list.filter(function(f) { return f.result === 'DANGER'; });
+
+    if (list.length === 0) {
+        el.innerHTML = '<tr><td colspan="11" style="text-align:center;">該当なし</td></tr>';
+        fiUpdateResultSummary();
+        return;
+    }
+
+    el.innerHTML = list.map(function(f) {
+        var checked = (f._checked !== false) ? ' checked' : '';
+        var entropyClass = f.entropy >= 7.5 ? 'style="color:var(--accent-error);font-weight:bold;"' :
+                          (f.entropy >= 7.0 ? 'style="color:var(--accent-warning);font-weight:bold;"' : '');
+        var extMatch = f.ext_match ? '<span style="color:var(--accent-success);">✅</span>' :
+                       '<span style="color:var(--accent-error);font-weight:bold;">❌ 偽装?</span>';
+
+        var statusHtml;
+        if (f.status === 'pending') statusHtml = '🔲 未検査';
+        else if (f.status === 'inspecting') statusHtml = '<span class="fi-spinner">⏳</span> 検査中';
+        else if (f.status === 'done') statusHtml = '✅ 完了';
+        else if (f.status === 'skip') statusHtml = '➖ スキップ';
+        else statusHtml = f.status;
+
+        var resultHtml = '-';
+        if (f.result === 'DANGER') resultHtml = '<span class="badge badge-threat">🔴 DANGER</span>';
+        else if (f.result === 'WARNING') resultHtml = '<span class="badge" style="background:var(--accent-warning);color:#0a1628;">🟡 WARNING</span>';
+        else if (f.result === 'INFO') resultHtml = '<span class="badge" style="background:var(--accent-info);color:#0a1628;">🔵 INFO</span>';
+        else if (f.result === 'SAFE') resultHtml = '<span class="badge" style="background:var(--accent-success);color:#0a1628;">🟢 SAFE</span>';
+
+        var actionHtml = '';
+        if (f.status === 'done') {
+            actionHtml = '<button class="detail-btn" onclick="fiOpenDetail(' + f.idx + ')">📋 詳細</button>';
+        }
+
+        var rowClass = f.result === 'DANGER' ? 'row-danger' : (f.result === 'WARNING' ? 'row-warning' : '');
+        if (!f.ext_match) rowClass = 'row-warning';
+
+        return '<tr class="' + rowClass + '">' +
+            '<td><input type="checkbox"' + checked + ' onchange="fiToggleCheck(' + f.idx + ', this.checked)"></td>' +
+            '<td>' + (f.idx + 1) + '</td>' +
+            '<td style="word-break:break-all;">' + f.filename + '</td>' +
+            '<td>' + f.type_icon + ' ' + f.type_label + '</td>' +
+            '<td>' + f.size + '</td>' +
+            '<td class="cell-sub">' + f.mtime + '</td>' +
+            '<td ' + entropyClass + '>' + f.entropy + '</td>' +
+            '<td>' + extMatch + '</td>' +
+            '<td>' + statusHtml + '</td>' +
+            '<td>' + resultHtml + '</td>' +
+            '<td>' + actionHtml + '</td>' +
+            '</tr>';
+    }).join('');
+
+    fiUpdateResultSummary();
+}
+
+function fiFilterFiles() { fiRenderFiles(); }
+
+function fiToggleCheck(idx, checked) {
+    if (_fiFiles[idx]) _fiFiles[idx]._checked = checked;
+}
+
+function fiToggleFilter(type) {
+    if (type === 'pending') {
+        _fiFilterPending = !_fiFilterPending;
+        _fiFilterDanger = false;
+    } else if (type === 'danger') {
+        _fiFilterDanger = !_fiFilterDanger;
+        _fiFilterPending = false;
+    }
+    document.getElementById('fi-btn-pending').classList.toggle('active', _fiFilterPending);
+    document.getElementById('fi-btn-danger').classList.toggle('active', _fiFilterDanger);
+    document.getElementById('fi-btn-pending').textContent = _fiFilterPending ? '🔲 未検査のみ (ON)' : '🔲 未検査のみ (OFF)';
+    document.getElementById('fi-btn-danger').textContent = _fiFilterDanger ? '🔴 危険のみ (ON)' : '🔴 危険のみ (OFF)';
+    fiRenderFiles();
+}
+
+function fiInspectAll() {
+    if (_fiFiles.length === 0) { alert('ファイルを読み込んでください'); return; }
+    if (!confirm(_fiFiles.length + ' ファイルの検査を実行しますか？')) return;
+    var targets = _fiFiles.filter(function(f) { return f.status === 'pending'; });
+    _fiRunInspection(targets);
+}
+
+function fiInspectSelected() {
+    var targets = _fiFiles.filter(function(f) { return f._checked !== false && f.status === 'pending'; });
+    if (targets.length === 0) { alert('検査対象のファイルがありません'); return; }
+    if (!confirm(targets.length + ' ファイルの検査を実行しますか？')) return;
+    _fiRunInspection(targets);
+}
+
+function _fiRunInspection(targets) {
+    if (targets.length === 0) return;
+    var container = document.getElementById('fi-progress-container');
+    container.style.display = 'block';
+    var total = targets.length;
+    var done = 0;
+
+    document.getElementById('fi-progress-label').textContent = '検査中... 0/' + total;
+    document.getElementById('fi-progress-bar').style.width = '0%';
+    document.getElementById('fi-progress-pct').textContent = '0%';
+    document.getElementById('fi-inspect-status').textContent = '検査中...';
+
+    function next() {
+        if (done >= total) {
+            document.getElementById('fi-progress-label').textContent = '✅ 検査完了 ' + total + '/' + total;
+            document.getElementById('fi-progress-bar').style.width = '100%';
+            document.getElementById('fi-progress-pct').textContent = '100%';
+            document.getElementById('fi-inspect-status').textContent = '完了';
+            setTimeout(function() { container.style.display = 'none'; }, 3000);
+            fiRenderFiles();
+            return;
+        }
+        var f = targets[done];
+        f.status = 'inspecting';
+        fiRenderFiles();
+
+        // P27-B以降で実装するanalyze APIを呼ぶ（現在は仮のhashチェック）
+        fetch('/api/fileinspect/hashes', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({filepath: f.filepath})
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            f.status = 'done';
+            f.hashes = res;
+            // 仮判定: エントロピー高 or 拡張子不一致で WARNING
+            if (!f.ext_match) { f.result = 'WARNING'; f.reason = '拡張子とファイル形式が不一致'; }
+            else if (f.entropy >= 7.5) { f.result = 'WARNING'; f.reason = '高エントロピー（パック/暗号化の疑い）'; }
+            else { f.result = 'SAFE'; f.reason = '異常なし'; }
+            done++;
+            var pct = Math.round((done / total) * 100);
+            document.getElementById('fi-progress-label').textContent = '検査中... ' + done + '/' + total + ' - ' + f.filename;
+            document.getElementById('fi-progress-bar').style.width = pct + '%';
+            document.getElementById('fi-progress-pct').textContent = pct + '%';
+            next();
+        }).catch(function(e) {
+            f.status = 'done';
+            f.result = 'INFO';
+            f.reason = '検査エラー';
+            done++;
+            next();
+        });
+    }
+    next();
+}
+
+function fiUpdateResultSummary() {
+    var danger = _fiFiles.filter(function(f) { return f.result === 'DANGER'; }).length;
+    var warning = _fiFiles.filter(function(f) { return f.result === 'WARNING'; }).length;
+    var safe = _fiFiles.filter(function(f) { return f.result === 'SAFE'; }).length;
+    var pending = _fiFiles.filter(function(f) { return f.status === 'pending'; }).length;
+    var skip = _fiFiles.filter(function(f) { return f.status === 'skip'; }).length;
+    var el = document.getElementById('fi-result-summary');
+    var text = document.getElementById('fi-result-summary-text');
+    if (_fiFiles.length > 0) {
+        el.style.display = 'block';
+        text.innerHTML = '検査結果: <span style="color:var(--accent-error);font-weight:bold;">🔴 DANGER: ' + danger + '</span>  ' +
+            '<span style="color:var(--accent-warning);font-weight:bold;">🟡 WARNING: ' + warning + '</span>  ' +
+            '<span style="color:var(--accent-success);">🟢 SAFE: ' + safe + '</span>  ' +
+            '🔲 未検査: ' + pending + '  ➖ スキップ: ' + skip;
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function fiOpenDetail(idx) {
+    var f = _fiFiles[idx];
+    if (!f) return;
+    var w = window.open('', '_blank', 'width=' + screen.availWidth + ',height=' + screen.availHeight);
+    var css = document.querySelector('link[rel="stylesheet"]');
+    var cssHref = css ? css.href : '';
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>File Inspector - ' + f.filename + '</title>');
+    if (cssHref) w.document.write('<link rel="stylesheet" href="' + cssHref + '">');
+    w.document.write('<style>body{background:var(--bg-primary);color:var(--text-primary);padding:20px;margin:0;font-family:inherit;} .fi-section{margin:16px 0;padding:12px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-primary);} .fi-section h3{margin:0 0 8px 0;color:var(--accent-info);} .fi-code{background:var(--bg-tertiary);padding:12px;border-radius:4px;font-family:monospace;font-size:0.82rem;white-space:pre-wrap;overflow:auto;max-height:400px;} table{width:100%;border-collapse:collapse;} td,th{padding:6px 10px;border-bottom:1px solid var(--border-primary);text-align:left;}</style>');
+    w.document.write('</head><body data-theme="dark">');
+    w.document.write('<h2>📋 検査詳細: ' + f.filename + '</h2>');
+
+    // Basic info
+    w.document.write('<div class="fi-section"><h3>■ ファイル基本情報</h3><table>');
+    w.document.write('<tr><td><b>ファイル名</b></td><td>' + f.filename + '</td></tr>');
+    w.document.write('<tr><td><b>パス</b></td><td>' + f.filepath + '</td></tr>');
+    w.document.write('<tr><td><b>サイズ</b></td><td>' + f.size + '</td></tr>');
+    w.document.write('<tr><td><b>更新日時</b></td><td>' + f.mtime + '</td></tr>');
+    w.document.write('<tr><td><b>種別</b></td><td>' + f.type_icon + ' ' + f.type_label + ' (' + f.type + ')</td></tr>');
+    w.document.write('<tr><td><b>エントロピー</b></td><td>' + f.entropy + '</td></tr>');
+    w.document.write('<tr><td><b>拡張子一致</b></td><td>' + (f.ext_match ? '✅ 一致' : '❌ 不一致') + '</td></tr>');
+    if (f.hashes) {
+        w.document.write('<tr><td><b>MD5</b></td><td style="font-family:monospace;">' + (f.hashes.md5 || 'N/A') + '</td></tr>');
+        w.document.write('<tr><td><b>SHA256</b></td><td style="font-family:monospace;">' + (f.hashes.sha256 || 'N/A') + '</td></tr>');
+    }
+    w.document.write('</table></div>');
+
+    // Result
+    w.document.write('<div class="fi-section"><h3>■ 検査結果</h3>');
+    w.document.write('<p><b>判定:</b> ' + (f.result || '-') + '</p>');
+    w.document.write('<p><b>理由:</b> ' + (f.reason || '-') + '</p>');
+    w.document.write('<p style="color:var(--text-secondary);">※ P27-B以降で構造解析・YARA スキャン結果がここに表示されます。</p>');
+    w.document.write('</div>');
+
+    w.document.write('<div style="margin-top:16px;"><button onclick="window.print()" style="padding:8px 16px;cursor:pointer;">🖨️ 印刷</button> <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">✕ 閉じる</button></div>');
+    w.document.write('</body></html>');
+    w.document.close();
+}
+
+
 
 // ============================================
 // Scan control from UI
