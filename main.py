@@ -41,35 +41,14 @@ def print_banner():
     print("   Target: APT / Malware / Rootkit Hunter")
     print("-" * 70)
 
-def select_mode():
-    """起動モード選択"""
-    CYAN = '\033[96m'
-    YELLOW = '\033[93m'
-    GREEN = '\033[92m'
-    RESET = '\033[0m'
-
-    print(f"\n{CYAN}  [1]{RESET} Full Scan      - All 12 categories scan + launch browser")
-    print(f"{CYAN}  [2]{RESET} Viewer Only    - Launch browser with last scan data (no scan)")
-    print()
-
-    while True:
-        choice = input(f"  {YELLOW}Select mode (1/2): {RESET}").strip()
-        if choice in ('1', '2'):
-            return int(choice)
-        print(f"  {YELLOW}Please enter 1 or 2.{RESET}")
-
 def main():
     enable_colors()
     print_banner()
-
     try:
-        # 2. ログフォルダ作成
         log_dir = os.path.join(BASE_DIR, "logs")
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
             print(f"[*] Init: Log directory created at {log_dir}")
-
-        # 3. 管理者権限チェック
         try:
             import ctypes
             is_admin = ctypes.windll.shell32.IsUserAnAdmin()
@@ -77,28 +56,20 @@ def main():
                 print("\033[93m[!] WARNING: Not running as Administrator. Deep scan may fail.\033[0m")
         except:
             pass
-
-        # 4. モード選択
-        mode = select_mode()
-
-        # 5. アプリ本体のインポート
         print("[*] Loading modules...")
-
-        if mode == 1:
-            from web.app import start_scan_and_server
-            start_scan_and_server()
-        else:
-            from web.app import start_viewer_only
-            start_viewer_only()
-
+        from web.app import start_server_only
+        start_server_only()
     except Exception:
-        print("\n" + "!"*60)
+        print("\n" + "!" * 60)
         print("【 CRITICAL ERROR 】")
-        print("!"*60)
+        print("!" * 60)
         traceback.print_exc()
-        print("!"*60)
+        print("!" * 60)
         print("\nPress Enter to exit...")
-        input()
+        try:
+            input()
+        except:
+            import time; time.sleep(10)
         sys.exit(1)
 
 if __name__ == "__main__":

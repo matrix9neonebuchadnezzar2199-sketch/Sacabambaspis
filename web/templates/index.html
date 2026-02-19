@@ -452,8 +452,20 @@
                 <button id="btn-report" class="filter-btn" onclick="generateReport()" style="margin-left:auto;">📄 レポート出力</button>
                 <button id="btn-csv-current" class="filter-btn" onclick="exportCurrentTabCSV()">📥 CSV出力</button>
                 <button id="btn-csv-all" class="filter-btn" onclick="exportAllCSV()">📦 全CSV</button>
+                <button id="btn-scan" class="filter-btn" onclick="startScan()" style="margin-left:8px; border-color:var(--accent-error); color:var(--accent-error); font-weight:bold;">⚡ フルスキャン実行</button>
+                <span id="scan-status-text" class="cell-sub" style="margin-left:8px;"></span>
             </div>
 
+            <!-- スキャン進捗バー -->
+            <div id="scan-progress-container" style="display:none; padding:8px 12px;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">
+                    <span id="scan-progress-label" style="font-weight:bold; color:var(--accent-info);">⚡ スキャン準備中...</span>
+                    <span id="scan-progress-pct" class="cell-sub">0%</span>
+                </div>
+                <div style="background:var(--bg-tertiary); border-radius:4px; height:8px; overflow:hidden;">
+                    <div id="scan-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--accent-info), var(--accent-success)); transition:width 0.3s;"></div>
+                </div>
+            </div>
 
 
             <!-- ===== タイムラインタブ ===== -->
@@ -3493,6 +3505,77 @@ function memdumpOpenFull(subtab) {
     w.document.write('</body></html>');
     w.document.close();
 }
+
+// ============================================
+// Scan control from UI
+// ============================================
+function startScan() {
+    if (!confirm('フルスキャンを実行しますか？\n管理者権限が必要です。数分かかる場合があります。')) return;
+    var btn = document.getElementById('btn-scan');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ スキャン中...';
+    var container = document.getElementById('scan-progress-container');
+    container.style.display = 'block';
+    document.getElementById('scan-progress-bar').style.width = '0%';
+    document.getElementById('scan-progress-pct').textContent = '0%';
+    document.getElementById('scan-progress-label').textContent = '⚡ スキャン開始...';
+    document.getElementById('scan-status-text').textContent = '';
+
+    fetch('/api/scan/start', {method:'POST'}).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'error') {
+            alert('エラー: ' + res.message);
+            btn.disabled = false;
+            btn.innerHTML = '⚡ フルスキャン実行';
+            container.style.display = 'none';
+            return;
+        }
+        _pollScanStatus();
+    }).catch(function(e) {
+        alert('通信エラー');
+        btn.disabled = false;
+        btn.innerHTML = '⚡ フルスキャン実行';
+        container.style.display = 'none';
+    });
+}
+
+function _pollScanStatus() {
+    fetch('/api/scan/status').then(function(r) { return r.json(); }).then(function(s) {
+        document.getElementById('scan-progress-bar').style.width = s.progress + '%';
+        document.getElementById('scan-progress-pct').textContent = s.progress + '%';
+        document.getElementById('scan-progress-label').textContent = '⚡ ' + (s.step || '処理中...');
+
+        if (s.done) {
+            var btn = document.getElementById('btn-scan');
+            btn.disabled = false;
+            btn.innerHTML = '⚡ フルスキャン実行';
+            if (s.error) {
+                document.getElementById('scan-progress-label').textContent = '❌ エラー: ' + s.error;
+                document.getElementById('scan-status-text').textContent = 'スキャンエラー';
+            } else {
+                document.getElementById('scan-progress-label').textContent = '✅ スキャン完了！データを更新中...';
+                document.getElementById('scan-status-text').textContent = '完了';
+                fetch('/api/data').then(function(r) { return r.json(); }).then(function(data) {
+                    window._scanData = data;
+                    if (data && data.system) {
+                        updateDashboard(data);
+                        updateThreatDisplay(data);
+                        initGraph();
+                    }
+                    loadHistoryList();
+                    setTimeout(function() {
+                        document.getElementById('scan-progress-container').style.display = 'none';
+                        document.getElementById('scan-status-text').textContent = '';
+                    }, 3000);
+                });
+            }
+            return;
+        }
+        setTimeout(_pollScanStatus, 500);
+    }).catch(function() {
+        setTimeout(_pollScanStatus, 1000);
+    });
+}
+
 
 </script>
 

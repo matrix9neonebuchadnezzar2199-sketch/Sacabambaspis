@@ -350,214 +350,205 @@ def save_report(data):
     except Exception as e:
         print(f"[!] 保存エラー: {e}")
 
-def start_scan_and_server():
-    global scan_results
-    print("--------------------------------------------------")
-    print("[*] Sacabambaspis スキャンエンジン起動...")
+# ============================================
+# Scan API (background thread)
+# ============================================
+_scan_status = {"running": False, "progress": 0, "step": "", "done": False, "error": None}
 
-    # 自プロセスPID取得（自己除外用）
-    self_pid = os.getpid()
-    self_ppid = os.getppid()  # 親プロセス（python.exe等）も除外対象
-    scan_start_time = datetime.now()
-    print(f"[*] Self PID: {self_pid}, Parent PID: {self_ppid}")
+@app.route('/api/scan/start', methods=['POST'])
+def api_scan_start():
+    global _scan_status
+    if _scan_status["running"]:
+        return jsonify({"status": "error", "message": "Scan already running"})
+    _scan_status = {"running": True, "progress": 0, "step": "Starting...", "done": False, "error": None}
+    t = threading.Thread(target=_run_scan, daemon=True)
+    t.start()
+    return jsonify({"status": "ok", "message": "Scan started"})
 
+@app.route('/api/scan/status')
+def api_scan_status():
+    return jsonify(_scan_status)
 
-    # 1. Process
-    print("[1/12] プロセス & DNA...")
+def _run_scan():
+    global scan_results, _scan_status
+    try:
+        self_pid = os.getpid()
+        self_ppid = os.getppid()
+        scan_start_time = datetime.now()
 
-    proc_c = ProcessCollector()
-    procs = proc_c.scan()
+        def update(step, progress):
+            _scan_status["step"] = step
+            _scan_status["progress"] = progress
 
-    dna_c = DNACollector()
-    for p in procs:
-        if p['status'] != 'SAFE' and os.path.exists(p['path']):
-            res = dna_c.analyze_file(p['path'])
-            if res:
-                p['dna'] = res
-                if res['entropy'] > 7.2:
-                    p['reason'] += " [高エントロピー]"
-                    p['status'] = "DANGER"
+        # 1. Process & DNA
+        update("プロセス & DNA 解析中...", 5)
+        proc_c = ProcessCollector()
+        procs = proc_c.scan()
+        dna_c = DNACollector()
+        for p in procs:
+            if p['status'] != 'SAFE' and os.path.exists(p['path']):
+                res = dna_c.analyze_file(p['path'])
+                if res:
+                    p['dna'] = res
+                    if res['entropy'] > 7.2:
+                        p['reason'] += " [高エントロピー]"
+                        p['status'] = "DANGER"
 
-    # 2. Memory
-    print("[2/12] メモリ...")
+        # 2. Memory
+        update("メモリ解析中...", 15)
+        mem_c = MemoryCollector()
+        injections = mem_c.scan()
 
-    mem_c = MemoryCollector()
-    injections = mem_c.scan()
+        # 3. Persistence
+        update("永続化設定チェック中...", 25)
+        pers_c = PersistenceCollector()
+        reg_c = RegistryCollector()
+        persistence = reg_c.scan() + pers_c.scan()
 
-    # 3. Persistence
-    print("[3/12] 永続化設定...")
+        # 4. Network
+        update("ネットワーク解析中...", 35)
+        net_c = NetworkCollector()
+        networks = net_c.scan()
 
-    pers_c = PersistenceCollector()
-    reg_c = RegistryCollector()
-    persistence = reg_c.scan() + pers_c.scan()
+        # 5. Evidence
+        update("実行痕跡解析中...", 45)
+        evid_c = EvidenceCollector()
+        evidence = evid_c.scan()
 
-    # 4. Network
-    print("[4/12] ネットワーク...")
+        # 6. EventLog
+        update("イベントログ解析中...", 55)
+        evt_c = EventLogCollector()
+        logs = evt_c.scan()
 
-    net_c = NetworkCollector()
-    networks = net_c.scan()
+        # 7. PCA
+        update("PCA実行履歴解析中...", 62)
+        pca_c = PCACollector()
+        pca_results = pca_c.scan()
 
-    # 5. Evidence
-    print("[5/12] 実行痕跡...")
+        # 8. ADS
+        update("ダウンロード元追跡中...", 70)
+        ads_c = ADSCollector()
+        ads_results = ads_c.scan()
 
-    evid_c = EvidenceCollector()
-    evidence = evid_c.scan()
+        # 9. WSL
+        update("WSL環境検査中...", 77)
+        wsl_c = WSLCollector()
+        wsl_results = wsl_c.scan()
 
-    # 6. EventLog
-    print("[6/12] イベントログ...")
-    evt_c = EventLogCollector()
-    logs = evt_c.scan()
+        # 10. CAM
+        update("CAM DB解析中...", 82)
+        cam_c = CAMCollector()
+        cam_results = cam_c.scan()
 
-    # 7. PCA (実行痕跡拡張)
-    print("[7/12] PCA実行履歴...")
-    pca_c = PCACollector()
-    pca_results = pca_c.scan()
+        # 11. SRUM
+        update("SRUM解析中...", 88)
+        srum_c = SRUMCollector()
+        srum_results = srum_c.scan()
 
-    # 8. ADS (Zone.Identifier)
-    print("[8/12] ダウンロード元追跡 (ADS)...")
-    ads_c = ADSCollector()
-    ads_results = ads_c.scan()
+        # 12. Recall
+        update("Recall検知中...", 94)
+        recall_c = RecallCollector()
+        recall_results = recall_c.scan()
 
-    # 9. WSL検知
-    print("[9/12] WSL環境検査...")
-    wsl_c = WSLCollector()
-    wsl_results = wsl_c.scan()
-
-    # 10. CAM DB
-    print("[10/12] CAM DB解析...")
-    cam_c = CAMCollector()
-    cam_results = cam_c.scan()
-
-    # 11. SRUM解析
-    print("[11/12] SRUM解析...")
-    srum_c = SRUMCollector()
-    srum_results = srum_c.scan()
-
-    # 12. Recall検知
-    print("[12/12] Recall検知...")
-    recall_c = RecallCollector()
-    recall_results = recall_c.scan()
-
-
-    # 自己除外マーキング: 自プロセスとその関連プロセスにフラグを付与
-    self_pids = {self_pid, self_ppid}
-    for p in procs:
-        if p['pid'] in self_pids:
-            p['is_self'] = True
-        else:
+        # Self-marking
+        update("自己除外処理中...", 96)
+        self_pids = {self_pid, self_ppid}
+        for p in procs:
+            p['is_self'] = p['pid'] in self_pids
+        for n in networks:
+            n['is_self'] = n.get('pid') in self_pids
+        for m in injections:
+            m['is_self'] = m.get('pid') in self_pids
+        self_event_ids = {'4672', '4688', '4104'}
+        for evt in logs:
+            evt['is_self'] = False
+            if evt.get('id') in self_event_ids:
+                try:
+                    evt_time = datetime.strptime(evt.get('time', ''), '%Y-%m-%d %H:%M:%S')
+                    diff = abs((scan_start_time - evt_time).total_seconds())
+                    if diff <= 120:
+                        msg_lower = (evt.get('message', '') or '').lower()
+                        if any(kw in msg_lower for kw in ['python', 'flask', 'sacabambaspis', 'powershell', 'main.py']):
+                            evt['is_self'] = True
+                except (ValueError, TypeError):
+                    pass
+        for e in evidence:
+            e['is_self'] = False
+        for p in persistence:
             p['is_self'] = False
-    for n in networks:
-        if n.get('pid') in self_pids:
-            n['is_self'] = True
-        else:
-            n['is_self'] = False
-    for m in injections:
-        if m.get('pid') in self_pids:
-            m['is_self'] = True
-        else:
-            m['is_self'] = False
 
-    # イベントログの自己判別: スキャン前後2分以内 + 自プロセス関連キーワードで判定
-    self_event_ids = {'4672', '4688', '4104'}
-    for evt in logs:
-        evt['is_self'] = False  # デフォルト
-        if evt.get('id') in self_event_ids:
-            try:
-                evt_time = datetime.strptime(evt.get('time', ''), '%Y-%m-%d %H:%M:%S')
-                diff = abs((scan_start_time - evt_time).total_seconds())
-                if diff <= 120:  # 前後2分以内
-                    msg_lower = (evt.get('message', '') or '').lower()
-                    if any(kw in msg_lower for kw in ['python', 'flask', 'sacabambaspis', 'powershell', 'main.py']):
-                        evt['is_self'] = True
-            except (ValueError, TypeError):
-                pass
-    # evidence と persistence にも is_self を設定（常にFalse）
-    for e in evidence:
-        e['is_self'] = False
-    for p in persistence:
-        p['is_self'] = False
+        # Aggregate
+        update("集計・スコアリング中...", 98)
+        flags = sum(1 for x in procs if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in persistence if x['status']=='DANGER') + \
+                sum(1 for x in networks if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in logs if x['status']=='DANGER') + \
+                sum(1 for x in injections if not x.get('is_self')) + \
+                sum(1 for x in pca_results if x['status']=='DANGER') + \
+                sum(1 for x in ads_results if x['status']=='DANGER') + \
+                sum(1 for x in wsl_results if x['status']=='DANGER') + \
+                sum(1 for x in cam_results if x['status']=='DANGER') + \
+                sum(1 for x in srum_results if x['status']=='DANGER') + \
+                sum(1 for x in recall_results if x['status']=='DANGER')
 
+        scan_results = {
+            "system": {
+                "hostname": socket.gethostname(),
+                "os": os.name.upper(),
+                "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "red_flags": flags
+            },
+            "processes": procs,
+            "memory": injections,
+            "persistence": persistence,
+            "networks": networks,
+            "evidence": evidence,
+            "eventlogs": logs,
+            "pca": pca_results,
+            "ads": ads_results,
+            "wsl": wsl_results,
+            "cam": cam_results,
+            "srum": srum_results,
+            "recall": recall_results
+        }
 
+        threat_assessment = calculate_threat_score(scan_results)
+        scan_results["system"]["threat_score"] = threat_assessment["total_danger"]
+        scan_results["system"]["threat_level"] = threat_assessment["level"]
+        scan_results["system"]["threat_level_ja"] = threat_assessment["level_ja"]
+        scan_results["system"]["threat_verdict"] = threat_assessment["verdict"]
+        scan_results["threat_assessment"] = threat_assessment
 
-    # 集計（自己除外分はカウントしない）
-    flags = sum(1 for x in procs if x['status']=='DANGER' and not x.get('is_self')) + \
-            sum(1 for x in persistence if x['status']=='DANGER') + \
-            sum(1 for x in networks if x['status']=='DANGER' and not x.get('is_self')) + \
-            sum(1 for x in logs if x['status']=='DANGER') + \
-            sum(1 for x in injections if not x.get('is_self')) + \
-            sum(1 for x in pca_results if x['status']=='DANGER') + \
-            sum(1 for x in ads_results if x['status']=='DANGER') + \
-            sum(1 for x in wsl_results if x['status']=='DANGER') + \
-            sum(1 for x in cam_results if x['status']=='DANGER') + \
-            sum(1 for x in srum_results if x['status']=='DANGER') + \
-            sum(1 for x in recall_results if x['status']=='DANGER')
+        save_report(scan_results)
 
+        _scan_status["progress"] = 100
+        _scan_status["step"] = "完了"
+        _scan_status["done"] = True
+        _scan_status["running"] = False
 
-    scan_results = {
-        "system": {
-            "hostname": socket.gethostname(),
-            "os": os.name.upper(),
-            "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "red_flags": flags
-        },
-        "processes": procs,
-        "memory": injections,
-        "persistence": persistence,
-        "networks": networks,
-        "evidence": evidence,
-        "eventlogs": logs,
-        "pca": pca_results,
-        "ads": ads_results,
-        "wsl": wsl_results,
-        "cam": cam_results,
-        "srum": srum_results,
-        "recall": recall_results
-    }
-
-    # P15: 統合脅威スコアリング
-    threat_assessment = calculate_threat_score(scan_results)
-    scan_results["system"]["threat_score"] = threat_assessment["total_danger"]
-    scan_results["system"]["threat_level"] = threat_assessment["level"]
-    scan_results["system"]["threat_level_ja"] = threat_assessment["level_ja"]
-    scan_results["system"]["threat_verdict"] = threat_assessment["verdict"]
-    scan_results["threat_assessment"] = threat_assessment
-
-    print(f"[*] 脅威レベル: {threat_assessment['level_ja']}")
-    print(f"    DANGER: {threat_assessment['total_danger']}件 / WARNING: {threat_assessment['total_warning']}件 / 全{threat_assessment['total_items']}件")
-    print(f"    DANGER検知カテゴリ: {threat_assessment['danger_category_count']}個")
-    if threat_assessment['correlation_reasons']:
-        print(f"    相関検知: {', '.join(threat_assessment['correlation_reasons'])}")
-
-    save_report(scan_results)
-    
-    print("[*] 完了。ブラウザを起動します。")
-    port = find_free_port()
-    print(f"[*] 使用ポート: {port}")
-    url = f"http://127.0.0.1:{port}"
-
-    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        import traceback
+        _scan_status["error"] = str(e)
+        _scan_status["step"] = "エラー発生"
+        _scan_status["running"] = False
+        _scan_status["done"] = True
+        traceback.print_exc()
 
 
-def start_viewer_only():
-    """スキャンを実行せずにWebサーバーのみ起動（空のデータで起動）"""
+def start_server_only():
+    """Start web server without scanning. Scan triggered via UI button."""
     global scan_results
 
-    print("--------------------------------------------------")
-    print("[*] Viewer Only Mode - No scan, no auto-load.")
-    print("[*] Use the History tab to load past scan data.")
-
-    # 空データで起動
     scan_results = {}
 
     port = find_free_port()
-    print(f"[*] Starting viewer on port {port}")
+    print(f"[*] Server starting on port {port}")
+    print(f"[*] Use the Scan button in the UI to start analysis.")
     url = f"http://127.0.0.1:{port}"
 
-    import threading
-    import webbrowser
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
+
 
 # Flaskのデバッグモードやリローダーを使わない（PyInstaller対策）
 if __name__ == "__main__":
