@@ -2496,3 +2496,176 @@ th[data-sortable]:hover .sort-arrow {
     max-width: 500px;
     overflow-wrap: break-word;
 }
+
+/* ============================================
+   P26: Memory Dump & Analysis
+   ============================================ */
+
+/* --- Upper/Lower pane layout --- */
+.memdump-upper-pane {
+    border-bottom: 2px solid var(--border-primary);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+}
+
+.memdump-lower-pane {
+    min-height: 300px;
+}
+
+/* --- Subtab navigation --- */
+.memdump-subtabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border-primary);
+    padding: 0 8px;
+    flex-wrap: wrap;
+}
+
+.memdump-subtab {
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.memdump-subtab:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.memdump-subtab.active {
+    color: var(--accent-info, #00d4ff);
+    border-bottom-color: var(--accent-info, #00d4ff);
+    font-weight: bold;
+}
+
+/* --- Sub-content panels --- */
+.memdump-sub-content {
+    display: none;
+}
+
+.memdump-sub-content.active {
+    display: block;
+}
+
+/* --- Fullscreen bar --- */
+.memdump-fullscreen-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.memdump-fullscreen-btn {
+    margin-left: auto;
+    border-color: var(--accent-info, #00d4ff) !important;
+    color: var(--accent-info, #00d4ff) !important;
+    font-size: 0.8rem;
+}
+
+.memdump-fullscreen-btn:hover {
+    background: rgba(0, 212, 255, 0.15);
+}
+
+/* --- Process row selection --- */
+.memdump-proc-row {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.memdump-proc-row:hover {
+    background: var(--bg-tertiary) !important;
+}
+
+/* --- Hex viewer --- */
+.memdump-hex-container {
+    overflow: auto;
+    max-height: calc(60vh - 80px);
+    padding: 8px;
+}
+
+.memdump-hex-table {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    width: 100%;
+}
+
+.memdump-hex-header {
+    display: flex;
+    gap: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    font-weight: bold;
+    font-size: 0.75rem;
+}
+
+.memdump-hex-line {
+    display: flex;
+    gap: 12px;
+    padding: 1px 0;
+}
+
+.memdump-hex-line:hover {
+    background: var(--bg-tertiary);
+}
+
+.memdump-hex-addr-col {
+    min-width: 140px;
+    color: var(--accent-info, #00d4ff);
+    flex-shrink: 0;
+}
+
+.memdump-hex-hex-col {
+    min-width: 380px;
+    word-spacing: 2px;
+    flex-shrink: 0;
+}
+
+.memdump-hex-ascii-col {
+    color: var(--accent-success, #00e676);
+    white-space: pre;
+    flex-shrink: 0;
+}
+
+/* --- Auto-fit tables --- */
+#tab-memdump table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+#tab-memdump td,
+#tab-memdump th {
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+/* --- Responsive --- */
+@media (max-width: 1200px) {
+    .memdump-hex-addr-col { min-width: 120px; }
+    .memdump-hex-hex-col { min-width: 300px; }
+    .memdump-subtabs { font-size: 0.78rem; }
+    .memdump-subtab { padding: 6px 10px; }
+}
+
+@media (max-width: 900px) {
+    .memdump-hex-hex-col { min-width: 200px; font-size: 0.75rem; }
+    .memdump-hex-ascii-col { display: none; }
+    .memdump-upper-pane .data-table-wrapper { max-height: 25vh; }
+}
+
+/* --- Print for fullscreen window --- */
+@media print {
+    .memdump-fullscreen-bar { display: none !important; }
+    .memdump-hex-container { max-height: none !important; overflow: visible !important; }
+    .data-table-wrapper { max-height: none !important; overflow: visible !important; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+}

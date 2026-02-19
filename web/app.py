@@ -8,7 +8,7 @@ import time
 import threading
 import webbrowser
 from datetime import datetime
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from utils.path_helper import resource_path
 
 # Collectors Import
@@ -237,6 +237,102 @@ def delete_history(filename):
             return jsonify({"status": "error", "message": str(e)})
     return jsonify({"status": "error", "message": "File not found"})
 
+# ============================================
+# P26: Memory Dump & Analysis API
+# ============================================
+from collectors.memdump import MemoryDumper
+_memdumper = MemoryDumper()
+
+@app.route('/api/memdump/list')
+def memdump_list():
+    try:
+        procs = _memdumper.list_processes()
+        return jsonify({"status": "ok", "processes": procs})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/dump', methods=['POST'])
+def memdump_dump():
+    data = request.get_json()
+    pid = data.get('pid')
+    output_dir = data.get('output_dir') or None
+    if not pid:
+        return jsonify({"status": "error", "message": "pid is required"})
+    try:
+        result = _memdumper.dump_process(int(pid), output_dir)
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/strings', methods=['POST'])
+def memdump_strings():
+    data = request.get_json()
+    pid = data.get('pid')
+    min_len = data.get('min_len', 4)
+    max_results = data.get('max_results', 5000)
+    if not pid:
+        return jsonify({"status": "error", "message": "pid is required"})
+    try:
+        result = _memdumper.extract_strings(int(pid), int(min_len), int(max_results))
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/dlls/<int:pid>')
+def memdump_dlls(pid):
+    try:
+        result = _memdumper.list_dlls(pid)
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/memmap/<int:pid>')
+def memdump_memmap(pid):
+    try:
+        result = _memdumper.memory_map(pid)
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/pe/scan/<int:pid>')
+def memdump_pe_scan(pid):
+    try:
+        result = _memdumper.scan_pe_headers(pid)
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/pe/export', methods=['POST'])
+def memdump_pe_export():
+    data = request.get_json()
+    pid = data.get('pid')
+    address = data.get('address')
+    output_dir = data.get('output_dir') or None
+    if not pid or not address:
+        return jsonify({"status": "error", "message": "pid and address required"})
+    try:
+        result = _memdumper.export_pe(int(pid), address, output_dir)
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/hex', methods=['POST'])
+def memdump_hex():
+    data = request.get_json()
+    pid = data.get('pid')
+    address = data.get('address')
+    size = data.get('size', 256)
+    if not pid or not address:
+        return jsonify({"status": "error", "message": "pid and address required"})
+    try:
+        result = _memdumper.read_hex(int(pid), address, int(size))
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+
+
 # --- メインロジック ---
 def save_report(data):
     if not os.path.exists(LOG_DIR):
@@ -462,7 +558,6 @@ def start_viewer_only():
     import webbrowser
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
-
 
 # Flaskのデバッグモードやリローダーを使わない（PyInstaller対策）
 if __name__ == "__main__":
