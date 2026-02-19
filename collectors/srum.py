@@ -81,14 +81,25 @@ class SRUMCollector:
                 app_name='SRUDB.dat',
                 detail='SRUDBファイルが見つかりません',
                 reason='SRUDB.dat が存在しない（削除された可能性）',
-                desc='【検知内容】SRUDB.dat が存在しません。\n\n'
-                     '【なぜ危険か】SRUDBはWindowsのリソース使用量モニター（SRUM）のデータベースです。'
-                     'アプリ実行履歴・ネットワーク通信量・電力使用量等が記録されています。'
-                     '攻撃者が証拠隠滅のためにSRUDBを削除した可能性があります。\n\n'
-                     '【次の調査手順】\n'
-                     '① Volume Shadow CopyからSRUDBの復元を試みる\n'
-                     '② DiagTrackサービスの状態を確認する\n'
-                     '③ イベントログでファイル削除の痕跡を確認する',
+                desc=build_tutor_desc(
+                    detection='SRUDB.dat が存在しません。',
+                    why_dangerous=(
+                        'SRUDBはWindowsのリソース使用量モニター（SRUM）のデータベースです。'
+                        'アプリ実行履歴・ネットワーク通信量・電力使用量等が記録されています。'
+                        '攻撃者が証拠隠滅のためにSRUDBを削除した可能性があります。'
+                    ),
+                    mitre_key='srum_high_network',
+                    normal_vs_abnormal=(
+                        '正常: SRUDB.datはC:\\Windows\\System32\\sru\\に常に存在する\n'
+                        '異常: ファイルが存在しない、またはサイズが0バイト'
+                    ),
+                    next_steps=[
+                        'Volume Shadow CopyからSRUDBの復元を試みる',
+                        'DiagTrackサービスの状態を確認する',
+                        'イベントログでファイル削除の痕跡を確認する',
+                    ],
+                    status='WARNING',
+                ),
                 status='WARNING',
                 timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             ))
@@ -109,41 +120,69 @@ class SRUMCollector:
             if size_mb >= self.VERY_LARGE_DB_THRESHOLD_MB:
                 status = 'DANGER'
                 reason = f'SRUDBが異常に巨大: {size_mb:.0f}MB'
-                desc = (
-                    f'【検知内容】SRUDBが {size_mb:.0f}MB あり、通常（50-300MB）を大幅に超えています。\n\n'
-                    f'【なぜ危険か】SRUDBの異常な肥大化は、大量のアプリ実行や'
-                    f'ネットワーク通信が行われていることを示唆します。'
-                    f'C2ビーコニングや大量データ送信（情報窃取）が記録されている可能性があります。\n\n'
-                    f'【次の調査手順】\n'
-                    f'① srum-dump や SrumECmd で詳細なネットワーク通信量を解析する\n'
-                    f'② 異常に通信量の多いプロセスを特定する\n'
-                    f'③ 通信先IPアドレスの評判を調査する\n\n'
-                        f'【MITRE ATT&CK】T1041 - Exfiltration Over C2 Channel\n'
-                        f'https://attack.mitre.org/techniques/T1041/'
+                desc = build_tutor_desc(
+                    detection=f'SRUDBが {size_mb:.0f}MB あり、通常（50-300MB）を大幅に超えています。',
+                    why_dangerous=(
+                        'SRUDBの異常な肥大化は、大量のアプリ実行や'
+                        'ネットワーク通信が行われていることを示唆します。'
+                        'C2ビーコニングや大量データ送信（情報窃取）が記録されている可能性があります。'
+                    ),
+                    mitre_key='srum_high_network',
+                    normal_vs_abnormal=(
+                        '正常: SRUDBは通常50〜300MB程度\n'
+                        '異常: 2GB以上に肥大化している場合、大量の通信やアプリ実行が発生している'
+                    ),
+                    next_steps=[
+                        'srum-dump や SrumECmd で詳細なネットワーク通信量を解析する',
+                        '異常に通信量の多いプロセスを特定する',
+                        '通信先IPアドレスの評判を調査する',
+                    ],
+                    status='DANGER',
                 )
             elif size_mb >= self.LARGE_DB_THRESHOLD_MB:
                 status = 'WARNING'
                 reason = f'SRUDBサイズが大きい: {size_mb:.0f}MB'
-                desc = (
-                    f'【検知内容】SRUDBが {size_mb:.0f}MB あり、やや大きめです。\n\n'
-                    f'長期間のデータが蓄積されています。'
-                    f'フォレンジック的には豊富な履歴が取得できる可能性があります。'
+                desc = build_tutor_desc(
+                    detection=f'SRUDBが {size_mb:.0f}MB あり、やや大きめです。',
+                    why_dangerous=(
+                        '長期間のデータが蓄積されています。'
+                        'フォレンジック的には豊富な履歴が取得できる可能性があります。'
+                    ),
+                    mitre_key=None,
+                    normal_vs_abnormal=(
+                        '正常: 長期運用マシンでは500MB程度になることもある\n'
+                        '異常: 短期間で急激にサイズが増加した場合は要注意'
+                    ),
+                    next_steps=[
+                        'srum-dump で通信量の上位プロセスを確認する',
+                        'サイズ増加の時期と他のイベントを照合する',
+                    ],
+                    status='WARNING',
                 )
 
             # 更新日時が古い場合（30日以上前）
             if age_days > 30 and status == 'SAFE':
                 status = 'WARNING'
                 reason = f'SRUDBの最終更新が {age_days}日前'
-                desc = (
-                    f'【検知内容】SRUDBが {age_days}日間更新されていません。\n\n'
-                    f'【なぜ危険か】SRUサービス（DiagTrack）が停止している、'
-                    f'またはDBが改ざん・凍結されている可能性があります。'
-                    f'攻撃者がSRUによる通信量記録を回避するため、'
-                    f'サービスを停止させた可能性も考えられます。\n\n'
-                    f'【次の調査手順】\n'
-                    f'① DiagTrackサービスの状態を確認する（sc query DiagTrack）\n'
-                    f'② サービス停止のイベントログ(System:7036)を確認する\n'
-                    f'③ レジストリでSRU設定の変更有無を確認する'
+                desc = build_tutor_desc(
+                    detection=f'SRUDBが {age_days}日間更新されていません。',
+                    why_dangerous=(
+                        'SRUサービス（DiagTrack）が停止している、'
+                        'またはDBが改ざん・凍結されている可能性があります。'
+                        '攻撃者がSRUによる通信量記録を回避するため、'
+                        'サービスを停止させた可能性も考えられます。'
+                    ),
+                    mitre_key=None,
+                    normal_vs_abnormal=(
+                        '正常: SRUDBは数時間〜1日おきに更新される\n'
+                        '異常: 30日以上更新がない場合、SRUサービスが停止している'
+                    ),
+                    next_steps=[
+                        'DiagTrackサービスの状態を確認する（sc query DiagTrack）',
+                        'サービス停止のイベントログ(System:7036)を確認する',
+                        'レジストリでSRU設定の変更有無を確認する',
+                    ],
+                    status='WARNING',
                 )
 
             results.append(self._make_entry(
@@ -165,8 +204,12 @@ class SRUMCollector:
                 app_name='SRUDB メタデータ',
                 detail='アクセス権限不足（管理者権限が必要）',
                 reason='SRUDB.dat へのアクセスが拒否されました',
-                desc='【検知内容】SRUDB.datへのアクセスが拒否されました。\n\n'
-                     '管理者権限で再実行してください。SRUDBの解析には管理者権限が必要です。',
+                desc=build_tutor_desc(
+                    detection='SRUDB.datへのアクセスが拒否されました。',
+                    why_dangerous='管理者権限で再実行してください。SRUDBの解析には管理者権限が必要です。',
+                    mitre_key=None,
+                    status='WARNING',
+                ),
                 status='WARNING',
                 timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             ))
@@ -182,6 +225,7 @@ class SRUMCollector:
             ))
 
         return results
+
 
     def _check_sru_extensions(self):
         """SRU拡張レジストリを確認し、記録カテゴリを列挙"""
@@ -211,7 +255,16 @@ class SRUMCollector:
                     app_name='SRU Extensions',
                     detail=f'{len(extensions)}個の記録カテゴリが登録',
                     reason='',
-                    desc='SRUは以下のカテゴリのデータを記録しています:\n' + '\n'.join(extensions[:10]),
+                    desc=build_tutor_desc(
+                        detection=f'SRUに{len(extensions)}個の記録カテゴリが登録されています。\n' + '\n'.join(extensions[:10]),
+                        why_dangerous='SRUが正常に動作しており、各カテゴリのデータを記録しています。',
+                        mitre_key=None,
+                        normal_vs_abnormal=(
+                            '正常: NetworkUsage、AppTimeline等の標準カテゴリが存在する\n'
+                            '異常: カテゴリが極端に少ない、または存在しない'
+                        ),
+                        status='INFO',
+                    ),
                     status='INFO',
                     timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 ))
@@ -221,13 +274,24 @@ class SRUMCollector:
                 app_name='SRU Extensions',
                 detail='SRU拡張レジストリが見つかりません',
                 reason='SRUが無効化されている可能性',
-                desc='【検知内容】SRUの拡張レジストリキーが存在しません。\n\n'
-                     '【なぜ危険か】SRUが無効化されている場合、アプリ実行履歴や'
-                     'ネットワーク通信量の記録が停止しています。'
-                     '攻撃者が検知回避のために無効化した可能性があります。\n\n'
-                     '【次の調査手順】\n'
-                     '① DiagTrackサービスの状態を確認する\n'
-                     '② グループポリシーでSRUが無効化されていないか確認する',
+                desc=build_tutor_desc(
+                    detection='SRUの拡張レジストリキーが存在しません。',
+                    why_dangerous=(
+                        'SRUが無効化されている場合、アプリ実行履歴や'
+                        'ネットワーク通信量の記録が停止しています。'
+                        '攻撃者が検知回避のために無効化した可能性があります。'
+                    ),
+                    mitre_key=None,
+                    normal_vs_abnormal=(
+                        '正常: SRU Extensionsレジストリキーは標準で存在する\n'
+                        '異常: キーが存在しない場合、SRUが意図的に無効化されている'
+                    ),
+                    next_steps=[
+                        'DiagTrackサービスの状態を確認する',
+                        'グループポリシーでSRUが無効化されていないか確認する',
+                    ],
+                    status='WARNING',
+                ),
                 status='WARNING',
                 timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             ))
@@ -243,6 +307,7 @@ class SRUMCollector:
             ))
 
         return results
+
 
     def _try_esentutl_copy(self):
         """esentutl でSRUDBのコピーを試み、テーブル情報を取得"""
@@ -373,17 +438,27 @@ class SRUMCollector:
                     if tool in exe:
                         status = 'DANGER'
                         reason = f'攻撃ツールのネットワーク通信: {exe}'
-                        desc = (
-                            f'【検知内容】攻撃ツール「{exe}」がネットワーク通信を行っています。\n'
-                            f'接続先: {", ".join(list(info["remotes"])[:5])}\n\n'
-                            f'【なぜ危険か】攻撃ツールのネットワーク通信は、C2サーバーへの接続、'
-                            f'窃取データの送信、追加ツールのダウンロード等を示します。\n\n'
-                            f'【次の調査手順】\n'
-                            f'① 即座にネットワークを遮断する\n'
-                            f'② 接続先IPの評判をVirusTotalやAbuseIPDBで調査する\n'
-                            f'③ ファイアウォールログで通信量と期間を特定する\n\n'
-                        f'【MITRE ATT&CK】T1219 - Remote Access Software\n'
-                        f'https://attack.mitre.org/techniques/T1219/'
+                        remote_list = ', '.join(list(info['remotes'])[:5])
+                        desc = build_tutor_desc(
+                            detection=(
+                                f'攻撃ツール「{exe}」がネットワーク通信を行っています。\n'
+                                f'接続先: {remote_list}'
+                            ),
+                            why_dangerous=(
+                                '攻撃ツールのネットワーク通信は、C2サーバーへの接続、'
+                                '窃取データの送信、追加ツールのダウンロード等を示します。'
+                            ),
+                            mitre_key='srum_suspicious_app',
+                            normal_vs_abnormal=(
+                                '正常: ブラウザ、Windows Update等の正規プロセスのみが通信している\n'
+                                '異常: 攻撃ツールや見覚えのないプロセスが外部と通信している'
+                            ),
+                            next_steps=[
+                                '即座にネットワークを遮断する',
+                                '接続先IPの評判をVirusTotalやAbuseIPDBで調査する',
+                                'ファイアウォールログで通信量と期間を特定する',
+                            ],
+                            status='DANGER',
                         )
                         break
 
@@ -391,16 +466,23 @@ class SRUMCollector:
                 if info['count'] > 20 and status == 'SAFE':
                     status = 'WARNING'
                     reason = f'{exe} が {info["count"]}件の接続を保持'
-                    desc = (
-                        f'【検知内容】{exe}が{info["count"]}件のネットワーク接続を保持しています。\n\n'
-                        f'【なぜ危険か】大量のネットワーク接続は、C2ビーコニング（定期的なC2通信）、'
-                        f'ポートスキャン、またはデータ窃取を示す可能性があります。\n\n'
-                        f'【次の調査手順】\n'
-                        f'① プロセスの正当性を確認する\n'
-                        f'② 接続先IPアドレスを調査する\n'
-                        f'③ 通信パターン（間隔・データ量）を確認する\n\n'
-                        f'【MITRE ATT&CK】T1071.001 - Web Protocols (C2)\n'
-                        f'https://attack.mitre.org/techniques/T1071/001/'
+                    desc = build_tutor_desc(
+                        detection=f'{exe}が{info["count"]}件のネットワーク接続を保持しています。',
+                        why_dangerous=(
+                            '大量のネットワーク接続は、C2ビーコニング（定期的なC2通信）、'
+                            'ポートスキャン、またはデータ窃取を示す可能性があります。'
+                        ),
+                        mitre_key='net_beaconing',
+                        normal_vs_abnormal=(
+                            '正常: ブラウザが多数のタブで接続を持つ場合は20件以上になることがある\n'
+                            '異常: 見慣れないプロセスが大量接続を保持、接続先が海外の不明IPアドレス'
+                        ),
+                        next_steps=[
+                            'プロセスの正当性を確認する',
+                            '接続先IPアドレスを調査する',
+                            '通信パターン（間隔・データ量）を確認する',
+                        ],
+                        status='WARNING',
                     )
 
                 if status != 'SAFE':
@@ -430,22 +512,3 @@ class SRUMCollector:
             ))
 
         return results
-
-    def _make_entry(self, source='', app_name='', detail='', reason='', desc='',
-                    status='INFO', timestamp='', network_sent='', network_recv='',
-                    cpu_time='', user_sid=''):
-        """統一フォーマットでエントリを生成"""
-        return {
-            'source': source,
-            'app_name': app_name,
-            'detail': detail,
-            'network_sent': network_sent,
-            'network_recv': network_recv,
-            'cpu_time': cpu_time,
-            'user_sid': user_sid,
-            'reason': reason,
-            'desc': desc,
-            'status': status,
-            'is_self': False,
-            'timestamp': timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        }
