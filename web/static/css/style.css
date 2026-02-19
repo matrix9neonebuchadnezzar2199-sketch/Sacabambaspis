@@ -432,12 +432,13 @@ body.sidebar-collapsed .sidebar-toggle-text {
 
 
 table {
-    width: max-content;
+    width: 100%;
     min-width: 100%;
     border-collapse: collapse;
     font-size: var(--font-size-sm);
-    table-layout: auto;
+    table-layout: fixed;
 }
+
 
 
 thead {
@@ -459,8 +460,9 @@ th {
     white-space: nowrap;
     user-select: none;
     width: auto;
+    white-space: normal;
+    word-break: break-word;
 }
-
 
 td {
     padding: 6px 10px;
@@ -468,8 +470,10 @@ td {
     vertical-align: top;
     color: var(--text-primary);
     font-size: var(--font-size-sm);
-    white-space: nowrap;
-    max-width: none;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    max-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -2409,4 +2413,39 @@ table tbody tr:focus-within {
     color: var(--text-secondary);
     margin-top: 6px;
     line-height: 1.4;
+}
+
+/* ================================================================
+   P24: レポート出力ボタン
+   ================================================================ */
+#btn-report {
+    background: linear-gradient(135deg, #1976d2, #1565c0);
+    color: #fff;
+    border: none;
+    font-weight: bold;
+}
+#btn-report:hover {
+    background: linear-gradient(135deg, #1e88e5, #1976d2);
+    box-shadow: 0 0 12px rgba(25, 118, 210, 0.4);
+}
+
+/* メインUI印刷時は非表示（レポートは別タブで開くため不要だが念のため） */
+@media print {
+    .sidebar,
+    .controls-bar,
+    .status-bar,
+    .threat-score-bar,
+    .header-settings-btn,
+    .detail-modal-overlay,
+    .decision-tree-overlay,
+    .settings-overlay,
+    .threat-detail-panel,
+    button,
+    .filter-btn {
+        display: none !important;
+    }
+    .main-content {
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
 }

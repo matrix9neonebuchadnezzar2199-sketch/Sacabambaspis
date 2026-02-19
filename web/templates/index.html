@@ -15,7 +15,7 @@
             }
         } catch(e) {}
     })();
-    
+
 
     // === P14: ローディングオーバーレイ制御 ===
     function showLoading(text) {
@@ -442,6 +442,7 @@
                 <button id="btn-warning" class="filter-btn" onclick="toggleWarningFilter()">🟡 警告のみ (OFF)</button>
                 <button id="btn-danger" class="filter-btn" onclick="toggleDangerFilter()">🔴 危険のみ (OFF)</button>
                 <button id="btn-self" class="filter-btn" onclick="toggleSelfFilter()">🐟 自己除外 (OFF)</button>
+                <button id="btn-report" class="filter-btn" onclick="generateReport()" style="margin-left:auto;">📄 レポート出力</button>
             </div>
 
 
@@ -918,11 +919,23 @@ const CAT_CONFIG = {
 document.addEventListener('DOMContentLoaded', () => {
     loadImportantFromStorage();
     fetch('/api/data').then(r => r.json()).then(data => {
-        updateDashboard(data);
-        updateThreatDisplay(data);
-        initGraph();
+        window._scanData = data;
+        if (data && data.system) {
+            updateDashboard(data);
+            updateThreatDisplay(data);
+            initGraph();
+        } else {
+            // Viewer Only: empty data - clear important items
+            importantItems.clear();
+            saveImportantToStorage();
+            updateImportantBadge();
+            document.getElementById('host-display').textContent = 'No data loaded';
+            document.getElementById('alert-display').innerHTML = 'Use History tab to load scan data';
+        }
         loadHistoryList();
     });
+
+
 });
 
 /* --- サイドバー制御 --- */
@@ -1163,6 +1176,7 @@ function loadReport(filename) {
     fetch('/api/history/load/' + filename).then(r => r.json()).then(res => {
         if (res.status === 'ok') {
             fetch('/api/data').then(r => r.json()).then(data => {
+                window._scanData = data;
                 updateDashboard(data);
                 updateThreatDisplay(data);
                 alert('読込完了: ' + filename);
@@ -2627,6 +2641,220 @@ document.addEventListener('keydown', function(e) {
         }
     }
 });
+
+// ================================================================
+// P24: レポート出力機能
+// ================================================================
+function generateReport() {
+    if (!window._scanData) {
+        alert('スキャンデータがありません。スキャン完了後に実行してください。');
+        return;
+    }
+
+    var data = window._scanData;
+    var sys = data.system || {};
+    var threat = data.threat_assessment || {};
+    var details = threat.category_details || {};
+
+    // カテゴリ定義（表示順）
+    var categories = [
+        {key: 'processes', label: 'プロセス解析', cols: ['pid','name','path','reason','status']},
+        {key: 'memory', label: 'メモリ領域解析', cols: ['pid','name','region','protection','reason','status']},
+        {key: 'persistence', label: '永続化検知', cols: ['type','name','value','reason','status']},
+        {key: 'networks', label: 'ネットワーク深層解析', cols: ['pid','name','protocol','local','remote','reason','status']},
+        {key: 'eventlogs', label: 'イベントログ', cols: ['id','log','time','message','status']},
+        {key: 'evidence', label: '実行痕跡', cols: ['source','artifact','timestamp','reason','status']},
+        {key: 'pca', label: 'PCA実行履歴', cols: ['exe_path','run_time','reason','status']},
+        {key: 'ads', label: 'ADS解析', cols: ['file_path','zone_id','url','reason','status']},
+        {key: 'wsl', label: 'WSL環境検査', cols: ['check','detail','reason','status']},
+        {key: 'cam', label: 'CAM DB解析', cols: ['program_name','exe_path','run_time','reason','status']},
+        {key: 'srum', label: 'SRUM解析', cols: ['source','app_name','detail','reason','status']},
+        {key: 'recall', label: 'Windows Recall', cols: ['check','detail','reason','status']}
+    ];
+
+    // ステータスバッジ生成
+    function badge(s) {
+        var colors = {DANGER:'#ff1744',WARNING:'#ff9100',INFO:'#2196f3',SAFE:'#4caf50'};
+        var c = colors[s] || '#999';
+        return '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:9pt;font-weight:bold;color:#fff;background:' + c + ';">' + (s||'') + '</span>';
+    }
+
+    // セル内テキストのサニタイズとトリム
+    function esc(v) {
+        if (v === null || v === undefined) return '';
+        var s = String(v);
+        if (s.length > 120) s = s.substring(0, 120) + '...';
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // タイムライン生成（テキスト形式）
+    function buildTimeline() {
+        var events = [];
+        categories.forEach(function(cat) {
+            var items = data[cat.key] || [];
+            items.forEach(function(item) {
+                if (item.is_self) return;
+                if (item.status === 'SAFE' || item.status === 'INFO') return;
+                var t = item.timestamp || item.time || item.run_time || '';
+                events.push({time: t, category: cat.label, name: item.name || item.artifact || item.program_name || item.app_name || item.check || '', status: item.status, reason: item.reason || ''});
+            });
+        });
+        events.sort(function(a, b) { return (a.time || '').localeCompare(b.time || ''); });
+        if (events.length === 0) return '<p>WARNING/DANGER イベントはありません。</p>';
+        var h = '<table><thead><tr><th style="width:15%;">時刻</th><th style="width:15%;">カテゴリ</th><th style="width:25%;">対象</th><th style="width:10%;">状態</th><th style="width:35%;">理由</th></tr></thead><tbody>';
+        events.forEach(function(e) {
+            h += '<tr><td>' + esc(e.time) + '</td><td>' + esc(e.category) + '</td><td style="word-break:break-all;">' + esc(e.name) + '</td><td>' + badge(e.status) + '</td><td style="word-break:break-all;">' + esc(e.reason) + '</td></tr>';
+        });
+        h += '</tbody></table>';
+        return h;
+    }
+
+    // カテゴリ別テーブル生成
+    function buildCategoryTable(cat) {
+        var items = data[cat.key] || [];
+        if (items.length === 0) return '<p>データなし</p>';
+        // is_self除外
+        var filtered = items.filter(function(x) { return !x.is_self; });
+        if (filtered.length === 0) return '<p>該当なし（自己除外後）</p>';
+
+        var h = '<table><thead><tr>';
+        cat.cols.forEach(function(c) {
+            var w = c === 'status' ? 'width:8%;' : (c === 'message' || c === 'path' || c === 'exe_path' || c === 'detail' || c === 'reason' ? 'width:auto;' : '');
+            h += '<th style="' + w + '">' + esc(c) + '</th>';
+        });
+        h += '</tr></thead><tbody>';
+        filtered.forEach(function(item) {
+            h += '<tr>';
+            cat.cols.forEach(function(c) {
+                var val = item[c];
+                if (c === 'status') {
+                    h += '<td>' + badge(val) + '</td>';
+                } else {
+                    h += '<td style="word-break:break-all;">' + esc(val) + '</td>';
+                }
+            });
+            h += '</tr>';
+        });
+        h += '</tbody></table>';
+        return h;
+    }
+
+    // カテゴリ別サマリーテーブル
+    function buildSummaryTable() {
+        var h = '<table><thead><tr><th>カテゴリ</th><th>DANGER</th><th>WARNING</th><th>INFO</th><th>SAFE</th><th>合計</th></tr></thead><tbody>';
+        categories.forEach(function(cat) {
+            var d = details[cat.key] || {};
+            var danger = d.danger || 0;
+            var warning = d.warning || 0;
+            var info = d.info || 0;
+            var safe = d.safe || 0;
+            var total = d.total || 0;
+            var rowStyle = danger > 0 ? 'background:rgba(255,23,68,0.1);' : '';
+            h += '<tr style="' + rowStyle + '"><td>' + esc(d.label || cat.label) + '</td>';
+            h += '<td style="color:#ff1744;font-weight:bold;">' + danger + '</td>';
+            h += '<td style="color:#ff9100;font-weight:bold;">' + warning + '</td>';
+            h += '<td>' + info + '</td><td>' + safe + '</td><td>' + total + '</td></tr>';
+        });
+        h += '</tbody></table>';
+        return h;
+    }
+
+    // HTML生成
+    var reportHtml = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
+        + '<title>Sacabambaspis Scan Report - ' + esc(sys.hostname) + '</title>'
+        + '<style>'
+        + '@page { size: A4; margin: 15mm; }'
+        + 'body { font-family: "Noto Sans JP","Meiryo","Yu Gothic",sans-serif; font-size: 10pt; color: #222; background: #fff; margin: 0; padding: 20px; }'
+        + 'h1 { font-size: 18pt; text-align: center; border-bottom: 3px solid #333; padding-bottom: 8px; margin-bottom: 4px; }'
+        + '.report-meta { text-align: center; font-size: 9pt; color: #666; margin-bottom: 20px; }'
+        + 'h2 { font-size: 13pt; border-left: 4px solid #1976d2; padding-left: 8px; margin-top: 24px; margin-bottom: 8px; page-break-after: avoid; }'
+        + 'h3 { font-size: 11pt; margin-top: 16px; margin-bottom: 6px; page-break-after: avoid; }'
+        + 'table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; margin-bottom: 12px; font-size: 8pt; page-break-inside: auto; }'
+        + 'th { background: #f5f5f5; border: 1px solid #ccc; padding: 4px 6px; text-align: left; font-size: 8pt; word-wrap: break-word; overflow-wrap: break-word; }'
+        + 'td { border: 1px solid #ccc; padding: 3px 6px; word-wrap: break-word; overflow-wrap: break-word; max-width: 0; vertical-align: top; }'
+        + 'tr { page-break-inside: avoid; }'
+        + '.threat-box { padding: 12px; border: 2px solid #333; border-radius: 8px; margin-bottom: 16px; text-align: center; }'
+        + '.threat-level { font-size: 24pt; font-weight: bold; }'
+        + '.threat-critical { color: #ff1744; } .threat-high { color: #ff9100; } .threat-medium { color: #ffd600; } .threat-low { color: #4caf50; } .threat-clean { color: #999; }'
+        + '.correlation { background: #fff3e0; border: 1px solid #ff9100; border-radius: 4px; padding: 8px; margin: 8px 0; font-size: 9pt; }'
+        + '.section { page-break-inside: avoid; }'
+        + '.no-data { color: #999; font-style: italic; }'
+        + '@media print { body { padding: 0; } .no-print { display: none !important; } }'
+        + '</style></head><body>';
+
+    // ヘッダー
+    reportHtml += '<h1>Sacabambaspis Scan Report</h1>';
+    reportHtml += '<div class="report-meta">'
+        + 'Host: ' + esc(sys.hostname) + ' | '
+        + 'Scan: ' + esc(sys.scan_time) + ' | '
+        + 'Version: v3.2 | '
+        + 'Report: ' + new Date().toLocaleString('ja-JP')
+        + '</div>';
+
+    // 脅威レベル
+    var levelClass = 'threat-' + (threat.level || 'clean').toLowerCase();
+    reportHtml += '<div class="threat-box">'
+        + '<div class="threat-level ' + levelClass + '">' + esc(threat.level_ja || '--') + '</div>'
+        + '<div style="margin-top:4px;">DANGER: <strong style="color:#ff1744;">' + (threat.total_danger||0) + '</strong>'
+        + ' / WARNING: <strong style="color:#ff9100;">' + (threat.total_warning||0) + '</strong>'
+        + ' / INFO: ' + (threat.total_info||0)
+        + ' / SAFE: ' + (threat.total_safe||0)
+        + ' / 全 ' + (threat.total_items||0) + ' 件</div>'
+        + '<div style="margin-top:4px;font-size:10pt;">' + esc(threat.verdict||'') + '</div>'
+        + '</div>';
+
+    // クロスモジュール相関
+    var corr = threat.correlation_reasons || [];
+    if (corr.length > 0) {
+        reportHtml += '<div class="correlation"><strong>クロスモジュール相関検知:</strong><br>';
+        corr.forEach(function(r) { reportHtml += '・' + esc(r) + '<br>'; });
+        reportHtml += '</div>';
+    }
+
+    // カテゴリ別サマリー
+    reportHtml += '<h2>カテゴリ別サマリー</h2>';
+    reportHtml += buildSummaryTable();
+
+    // タイムライン（WARNING/DANGER のみ）
+    reportHtml += '<h2>タイムライン（WARNING / DANGER）</h2>';
+    reportHtml += buildTimeline();
+
+    // カテゴリ別詳細
+    reportHtml += '<h2>カテゴリ別詳細</h2>';
+    categories.forEach(function(cat) {
+        var items = data[cat.key] || [];
+        var nonSelf = items.filter(function(x) { return !x.is_self; });
+        var dangerCount = nonSelf.filter(function(x) { return x.status === 'DANGER'; }).length;
+        var warningCount = nonSelf.filter(function(x) { return x.status === 'WARNING'; }).length;
+        var suffix = '';
+        if (dangerCount > 0) suffix = ' — <span style="color:#ff1744;">DANGER ' + dangerCount + '</span>';
+        else if (warningCount > 0) suffix = ' — <span style="color:#ff9100;">WARNING ' + warningCount + '</span>';
+
+        reportHtml += '<h3>' + esc(cat.label) + ' (' + nonSelf.length + '件)' + suffix + '</h3>';
+        reportHtml += buildCategoryTable(cat);
+    });
+
+    // フッター
+    reportHtml += '<div style="margin-top:30px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#999;text-align:center;">'
+        + 'Generated by Sacabambaspis v3.2 | ' + new Date().toLocaleString('ja-JP')
+        + '</div>';
+
+    reportHtml += '</body></html>';
+
+    // 新しいタブで開く
+    var reportWindow = window.open('', '_blank');
+    if (reportWindow) {
+        reportWindow.document.write(reportHtml);
+        reportWindow.document.close();
+        // 印刷ダイアログを自動表示（少し待ってから）
+        setTimeout(function() {
+            reportWindow.focus();
+            reportWindow.print();
+        }, 500);
+    } else {
+        alert('ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。');
+    }
+}
 
 </script>
 

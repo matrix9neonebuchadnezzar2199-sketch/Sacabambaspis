@@ -442,6 +442,28 @@ def start_scan_and_server():
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
 
+
+def start_viewer_only():
+    """スキャンを実行せずにWebサーバーのみ起動（空のデータで起動）"""
+    global scan_results
+
+    print("--------------------------------------------------")
+    print("[*] Viewer Only Mode - No scan, no auto-load.")
+    print("[*] Use the History tab to load past scan data.")
+
+    # 空データで起動
+    scan_results = {}
+
+    port = find_free_port()
+    print(f"[*] Starting viewer on port {port}")
+    url = f"http://127.0.0.1:{port}"
+
+    import threading
+    import webbrowser
+    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
+
+
 # Flaskのデバッグモードやリローダーを使わない（PyInstaller対策）
 if __name__ == "__main__":
     pass

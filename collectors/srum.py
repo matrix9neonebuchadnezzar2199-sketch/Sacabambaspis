@@ -512,3 +512,23 @@ class SRUMCollector:
             ))
 
         return results
+
+
+    def _make_entry(self, source='', app_name='', detail='', reason='', desc='',
+                    status='INFO', timestamp='', network_sent='', network_recv='',
+                    cpu_time='', user_sid=''):
+        """統一フォーマットでエントリを生成"""
+        return {
+            'source': source,
+            'app_name': app_name,
+            'detail': detail,
+            'network_sent': network_sent,
+            'network_recv': network_recv,
+            'cpu_time': cpu_time,
+            'user_sid': user_sid,
+            'reason': reason,
+            'desc': desc,
+            'status': status,
+            'is_self': False,
+            'timestamp': timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
