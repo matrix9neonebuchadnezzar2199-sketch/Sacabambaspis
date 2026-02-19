@@ -3851,6 +3851,16 @@ function fiOpenDetail(idx) {
         'T1505.003': {name: 'Web Shell', jp: 'Webシェル', desc: 'Webサーバーにバックドアスクリプトを設置し、リモートからコマンドを実行します。'},
         'T1547.001': {name: 'Registry Run Keys', jp: 'レジストリRun キー永続化', desc: 'レジストリのRun/RunOnceキーにプログラムを登録し、システム起動時に自動実行させます。'},
         'T1559.001': {name: 'Component Object Model', jp: 'COMオブジェクト悪用', desc: 'COMオブジェクトを利用してプロセス間通信やコード実行を行います。'},
+        'T1539': {name: 'Steal Web Session Cookie', jp: 'Webセッション Cookie窃取', desc: 'ブラウザのCookieを窃取してセッションを乗っ取ります。ログイン状態を奪取し、被害者になりすましてWebサービスにアクセスします。'},
+        'T1189': {name: 'Drive-by Compromise', jp: 'ドライブバイダウンロード', desc: 'ユーザーが悪意あるWebサイトを閲覧しただけでマルウェアに感染する攻撃です。非表示iframeや悪意あるスクリプトが利用されます。'},
+        'T1204.001': {name: 'Malicious Link', jp: '悪意あるリンクのクリック誘導', desc: 'ユーザーに悪意あるURLをクリックさせてマルウェア感染やフィッシングを実行します。'},
+        'T1053.005': {name: 'Scheduled Task', jp: 'タスクスケジューラ悪用', desc: 'Windowsタスクスケジューラに悪意あるタスクを登録し、定期的または起動時にマルウェアを実行させる永続化手法です。'},
+        'T1136': {name: 'Create Account', jp: 'アカウント作成', desc: '攻撃者がシステム上に新しいユーザーアカウントを作成し、永続的なアクセスを確保します。'},
+        'T1070.004': {name: 'File Deletion', jp: 'ファイル削除（証拠隠滅）', desc: '攻撃の痕跡を消すためにログファイルやマルウェア本体を削除します。'},
+        'T1562.001': {name: 'Disable or Modify Tools', jp: 'セキュリティツール無効化', desc: 'Windows Defender等のセキュリティ製品を無効化したり、除外設定を追加して検知を回避します。'},
+        'T1497.001': {name: 'System Checks', jp: 'サンドボックス/デバッガ検出', desc: '解析環境（サンドボックスやデバッガ）を検出し、解析を妨害します。マルウェアが自動解析を回避するために使用します。'},
+        'T1056.001': {name: 'Keylogging', jp: 'キーロギング', desc: 'キーボード入力を記録して、パスワードやクレジットカード番号等の機密情報を窃取します。'},
+        'T1055.012': {name: 'Process Hollowing', jp: 'プロセスホロウイング', desc: '正規プロセスのメモリ内容を空にして悪意あるコードに置き換えます。プロセスインジェクションの高度な手法です。'},
         'T1048': {name: 'Exfiltration Over Alternative Protocol', jp: '代替プロトコルによるデータ持ち出し', desc: '標準的でないプロトコルやチャネルを使用してデータを外部に送信します。'},
     };
 
@@ -4083,6 +4093,176 @@ function fiOpenDetail(idx) {
             w.document.write('</div>');
         }
     }
+
+
+        // --- IMAGE ---
+        if (da.type === 'IMAGE') {
+            w.document.write('<div class="fi-section"><h3>■ 画像ファイル解析</h3>');
+            w.document.write('<div class="explain-text">画像ファイル内にPHPコード、JavaScript、シェルコマンド等の実行可能なコードが埋め込まれていないかを検査します。Webシェル攻撃では画像ファイルにPHPコードを隠蔽し、Webサーバー上で実行させる手法が使われます。</div>');
+            if (da.format) w.document.write('<p><b>画像形式:</b> ' + da.format + '</p>');
+            if (da.trailer_data) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-warning);"><b>⚠ 末尾追加データ検出</b><br>オフセット: 0x' + da.trailer_data.offset.toString(16).toUpperCase() + ' / サイズ: ' + da.trailer_data.size + ' バイト<br>画像の正規データ終端以降に追加データが付加されています。ステガノグラフィ（データ隠蔽）やマルウェアコードの隠蔽に利用されることがあります。</div>');
+            }
+            if (da.embedded_code && da.embedded_code.length > 0) {
+                w.document.write('<p><b>埋め込みコード検出（' + da.embedded_code.length + '種類）:</b></p>');
+                w.document.write('<table><tr><th style="min-width:160px;white-space:nowrap;">パターン</th><th style="min-width:60px;">検出数</th><th style="min-width:100px;white-space:nowrap;">検出箇所</th><th>説明</th></tr>');
+                for (var ec = 0; ec < da.embedded_code.length; ec++) {
+                    var ecd = da.embedded_code[ec];
+                    w.document.write('<tr><td style="color:var(--accent-error);font-family:monospace;">' + ecd.pattern + '</td><td>' + ecd.count + '</td><td>' + ecd.location + '</td><td>' + ecd.description + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.exif_suspicious && da.exif_suspicious.length > 0) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-error);"><b>🚨 EXIF内の不審なコード</b><br>' + da.exif_suspicious.join('<br>') + '<br>EXIFメタデータ（撮影情報等）の領域に実行可能なコードが埋め込まれています。</div>');
+            }
+            if (!da.embedded_code || da.embedded_code.length === 0) {
+                if (!da.trailer_data && (!da.exif_suspicious || da.exif_suspicious.length === 0)) {
+                    w.document.write('<p style="color:var(--accent-success);">✅ 埋め込みコードは検出されませんでした</p>');
+                }
+            }
+            w.document.write('</div>');
+        }
+
+        // --- SCRIPT ---
+        if (da.type === 'SCRIPT') {
+            w.document.write('<div class="fi-section"><h3>■ スクリプトファイル解析</h3>');
+            w.document.write('<div class="explain-text">スクリプトファイル内の危険なパターン（コマンド実行、ダウンロード、永続化、難読化等）を検出します。攻撃者はPowerShell、バッチファイル、JavaScript等のスクリプトを使用してマルウェアのダウンロードや実行を行います。</div>');
+            if (da.script_type) w.document.write('<p><b>スクリプト種別:</b> ' + da.script_type + '</p>');
+            w.document.write('<p><b>行数:</b> ' + (da.lines || 'N/A') + ' / <b>エンコーディング:</b> ' + (da.encoding || 'N/A') + '</p>');
+            if (da.suspicious_patterns && da.suspicious_patterns.length > 0) {
+                w.document.write('<p><b>危険パターン検出（' + da.suspicious_patterns.length + '種類）:</b></p>');
+                w.document.write('<table><tr><th style="min-width:200px;white-space:nowrap;">パターン</th><th style="min-width:60px;">検出数</th><th>説明</th></tr>');
+                for (var sp = 0; sp < da.suspicious_patterns.length; sp++) {
+                    var spd = da.suspicious_patterns[sp];
+                    w.document.write('<tr><td style="color:var(--accent-warning);font-family:monospace;">' + spd.pattern + '</td><td>' + spd.count + '</td><td>' + spd.description + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.obfuscation_indicators && da.obfuscation_indicators.length > 0) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-warning);"><b>⚠ 難読化の兆候:</b><br>');
+                for (var oi = 0; oi < da.obfuscation_indicators.length; oi++) {
+                    w.document.write('・' + da.obfuscation_indicators[oi] + '<br>');
+                }
+                w.document.write('</div>');
+            }
+            if (da.code_preview) {
+                w.document.write('<p><b>コードプレビュー（先頭5000文字）:</b></p>');
+                w.document.write('<div class="fi-code" id="script-preview">' + da.code_preview.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>');
+                w.document.write('<div style="margin:8px 0;"><button onclick="var t=document.getElementById(\'script-preview\').textContent;var b=new Blob([t],{type:\'text/plain\'});var a=document.createElement(\'a\');a.href=URL.createObjectURL(b);a.download=\'' + f.filename + '_preview.txt\';a.click();" style="padding:6px 14px;cursor:pointer;">💾 コード抽出（.txt）</button> ');
+                w.document.write('<button onclick="navigator.clipboard.writeText(document.getElementById(\'script-preview\').textContent);alert(\'コピーしました\');" style="padding:6px 14px;cursor:pointer;">📋 コピー</button></div>');
+            }
+            w.document.write('</div>');
+        }
+
+        // --- ARCHIVE ---
+        if (da.type === 'ARCHIVE') {
+            w.document.write('<div class="fi-section"><h3>■ アーカイブファイル解析</h3>');
+            w.document.write('<div class="explain-text">アーカイブ（ZIP等）の内部構造を検査し、二重拡張子による偽装、実行ファイルの格納、パストラバーサル、ZIPボム（展開爆弾）等の攻撃手法を検出します。マルウェアはアーカイブに格納してメール添付やダウンロードで配布されることが多いです。</div>');
+            if (da.archive_type) w.document.write('<p><b>アーカイブ形式:</b> ' + da.archive_type + '</p>');
+            w.document.write('<p><b>エントリ数:</b> ' + (da.total_entries || 0) + ' / <b>展開後サイズ:</b> ' + (da.total_uncompressed ? (da.total_uncompressed / 1024).toFixed(1) + ' KB' : 'N/A') + '</p>');
+            if (da.password_protected) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-warning);"><b>🔒 パスワード保護</b><br>このアーカイブはパスワードで保護されています。マルウェア配布時にセキュリティ製品のスキャンを回避する目的でパスワードが設定されることがあります。</div>');
+            }
+            if (da.suspicious_entries && da.suspicious_entries.length > 0) {
+                w.document.write('<p><b>不審なエントリ（' + da.suspicious_entries.length + '件）:</b></p>');
+                w.document.write('<table><tr><th>ファイル名</th><th>理由</th></tr>');
+                for (var se = 0; se < da.suspicious_entries.length; se++) {
+                    w.document.write('<tr><td style="color:var(--accent-error);word-break:break-all;">' + da.suspicious_entries[se].name + '</td><td>' + da.suspicious_entries[se].reason + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.entries && da.entries.length > 0) {
+                w.document.write('<p><b>全エントリ一覧:</b></p>');
+                w.document.write('<table><tr><th>名前</th><th style="min-width:80px;white-space:nowrap;">サイズ</th><th style="min-width:80px;white-space:nowrap;">圧縮後</th></tr>');
+                for (var ae = 0; ae < Math.min(da.entries.length, 50); ae++) {
+                    var ent = da.entries[ae];
+                    var nameStyle = ent.is_dir ? 'color:var(--accent-info);' : '';
+                    w.document.write('<tr><td style="word-break:break-all;' + nameStyle + '">' + (ent.is_dir ? '📁 ' : '📄 ') + ent.name + '</td><td>' + (ent.size / 1024).toFixed(1) + ' KB</td><td>' + (ent.compressed ? (ent.compressed / 1024).toFixed(1) + ' KB' : '-') + '</td></tr>');
+                }
+                if (da.entries.length > 50) w.document.write('<tr><td colspan="3" style="color:var(--text-secondary);">... 他 ' + (da.entries.length - 50) + ' エントリ</td></tr>');
+                w.document.write('</table>');
+            }
+            w.document.write('</div>');
+        }
+
+        // --- HTML/SVG ---
+        if (da.type === 'HTML_SVG') {
+            w.document.write('<div class="fi-section"><h3>■ HTML/SVGファイル解析</h3>');
+            w.document.write('<div class="explain-text">HTML/SVGファイル内のJavaScript、iframe、外部リソース読み込み、難読化パターン等を検査します。フィッシングページ、ドライブバイダウンロード攻撃、XSS（クロスサイトスクリプティング）等に使用される手法を検出します。</div>');
+            if (da.file_type) w.document.write('<p><b>ファイル種別:</b> ' + da.file_type + '</p>');
+            if (da.scripts && da.scripts.length > 0) {
+                w.document.write('<p><b>埋め込みスクリプト（' + da.scripts.length + '個）:</b></p>');
+                for (var hs = 0; hs < da.scripts.length; hs++) {
+                    var hsc = da.scripts[hs];
+                    w.document.write('<p>スクリプト #' + (hs+1) + '（' + hsc.length + '文字）:</p>');
+                    w.document.write('<div class="fi-code" id="html-script-' + hs + '">' + hsc.content.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>');
+                    w.document.write('<div style="margin:8px 0;"><button onclick="var t=document.getElementById(\'html-script-' + hs + '\').textContent;var b=new Blob([t],{type:\'text/plain\'});var a=document.createElement(\'a\');a.href=URL.createObjectURL(b);a.download=\'' + f.filename + '_script_' + hs + '.txt\';a.click();" style="padding:6px 14px;cursor:pointer;">💾 コード抽出（.txt）</button></div>');
+                }
+            }
+            if (da.iframes && da.iframes.length > 0) {
+                w.document.write('<p><b>iframe（' + da.iframes.length + '件）:</b></p><ul>');
+                for (var hi = 0; hi < da.iframes.length; hi++) {
+                    w.document.write('<li style="word-break:break-all;font-family:monospace;font-size:0.85em;">' + da.iframes[hi] + '</li>');
+                }
+                w.document.write('</ul>');
+            }
+            if (da.external_resources && da.external_resources.length > 0) {
+                w.document.write('<p><b>外部リソース（' + da.external_resources.length + '件）:</b></p>');
+                w.document.write('<table><tr><th style="min-width:80px;white-space:nowrap;">種別</th><th>URL</th></tr>');
+                for (var er = 0; er < da.external_resources.length; er++) {
+                    w.document.write('<tr><td>' + da.external_resources[er].type + '</td><td style="word-break:break-all;font-family:monospace;font-size:0.85em;">' + da.external_resources[er].url + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.suspicious_patterns && da.suspicious_patterns.length > 0) {
+                w.document.write('<p><b>危険パターン（' + da.suspicious_patterns.length + '種類）:</b></p>');
+                w.document.write('<table><tr><th style="min-width:160px;white-space:nowrap;">パターン</th><th style="min-width:60px;">検出数</th><th>説明</th></tr>');
+                for (var hp = 0; hp < da.suspicious_patterns.length; hp++) {
+                    var hpd = da.suspicious_patterns[hp];
+                    w.document.write('<tr><td style="color:var(--accent-warning);font-family:monospace;">' + hpd.pattern + '</td><td>' + hpd.count + '</td><td>' + hpd.description + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            w.document.write('</div>');
+        }
+
+        // --- EXECUTABLE ---
+        if (da.type === 'EXECUTABLE') {
+            w.document.write('<div class="fi-section"><h3>■ 実行ファイル解析</h3>');
+            w.document.write('<div class="explain-text">PE（Portable Executable）形式の実行ファイルのヘッダ情報、セクション構造、インポートAPI、パッカー検出等を行います。プロセスインジェクション、キーロガー、ダウンローダー等のマルウェアの特徴を検出します。</div>');
+            if (da.architecture) w.document.write('<p><b>アーキテクチャ:</b> ' + da.architecture + '</p>');
+            if (da.compile_time) w.document.write('<p><b>コンパイル日時:</b> ' + da.compile_time + '</p>');
+            if (da.entry_point) w.document.write('<p><b>エントリポイント:</b> ' + da.entry_point + '</p>');
+            if (da.packer_detected) {
+                w.document.write('<div class="explain-text" style="border-left-color:var(--accent-warning);"><b>📦 パッカー検出: ' + da.packer_detected + '</b><br>この実行ファイルはパッカー（圧縮・暗号化ツール）で保護されています。マルウェアはパッカーを使用してシグネチャ検知や静的解析を回避します。</div>');
+            }
+            if (da.sections && da.sections.length > 0) {
+                w.document.write('<p><b>セクション一覧（' + da.sections.length + '個）:</b></p>');
+                w.document.write('<div class="explain-text">PE実行ファイルは複数のセクションで構成されます。.text=コード、.data=データ、.rsrc=リソース。RWX（読み書き実行可能）セクションは自己書き換えコードの兆候です。</div>');
+                w.document.write('<table><tr><th>名前</th><th>仮想サイズ</th><th>実サイズ</th><th>権限</th></tr>');
+                for (var ps = 0; ps < da.sections.length; ps++) {
+                    var sec = da.sections[ps];
+                    var permColor = (sec.permissions.indexOf('W') >= 0 && sec.permissions.indexOf('X') >= 0) ? 'color:var(--accent-error);font-weight:bold;' : '';
+                    w.document.write('<tr><td>' + sec.name + '</td><td>' + sec.virtual_size + '</td><td>' + sec.raw_size + '</td><td style="' + permColor + '">' + sec.permissions + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.imports_suspicious && da.imports_suspicious.length > 0) {
+                w.document.write('<p><b>疑わしいAPI（' + da.imports_suspicious.length + '件）:</b></p>');
+                w.document.write('<div class="explain-text">以下のWindows APIは正規のソフトウェアでも使用されますが、マルウェアによるプロセスインジェクション、キーロギング、ファイルダウンロード等に頻繁に悪用されるAPIです。</div>');
+                w.document.write('<table><tr><th style="min-width:200px;white-space:nowrap;">API名</th><th>説明</th></tr>');
+                for (var ia = 0; ia < da.imports_suspicious.length; ia++) {
+                    w.document.write('<tr><td style="color:var(--accent-warning);font-family:monospace;">' + da.imports_suspicious[ia].api + '</td><td>' + da.imports_suspicious[ia].description + '</td></tr>');
+                }
+                w.document.write('</table>');
+            }
+            if (da.signed) {
+                w.document.write('<p style="color:var(--accent-success);">✅ デジタル署名あり</p>');
+            } else {
+                w.document.write('<p style="color:var(--accent-warning);">⚠ デジタル署名なし - 署名のない実行ファイルは信頼性が低い可能性があります</p>');
+            }
+            w.document.write('</div>');
+        }
 
     // ===== 6. ボタン =====
     w.document.write('<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-primary);"><button onclick="window.print()" style="padding:8px 18px;cursor:pointer;margin-right:8px;">🖨️ 印刷</button> <button onclick="window.close()" style="padding:8px 18px;cursor:pointer;">✕ 閉じる</button></div>');

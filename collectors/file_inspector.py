@@ -1478,6 +1478,631 @@ class FileInspector:
         result['mitre'] = list(set(result['mitre']))
         return result
 
+
+    def analyze_image(self, filepath):
+        """Analyze image files for embedded code, steganography indicators."""
+        import struct
+        result = {
+            'type': 'IMAGE',
+            'format': '',
+            'dimensions': '',
+            'embedded_code': [],
+            'exif_suspicious': [],
+            'trailer_data': None,
+            'status': 'SAFE',
+            'risk_score': 0,
+            'findings': [],
+            'mitre': []
+        }
+        try:
+            with open(filepath, 'rb') as f:
+                data = f.read()
+        except Exception as e:
+            result['findings'].append({'type': 'WARNING', 'detail': f'画像読み取りエラー: {e}'})
+            return result
+
+        size = len(data)
+        ext = os.path.splitext(filepath)[1].lower()
+
+        # Detect format from magic bytes
+        if data[:2] == b'\xff\xd8':
+            result['format'] = 'JPEG'
+            # Find JPEG EOI marker
+            eoi = data.rfind(b'\xff\xd9')
+            if eoi >= 0 and eoi + 2 < size:
+                trailer_size = size - (eoi + 2)
+                if trailer_size > 16:
+                    result['trailer_data'] = {'offset': eoi + 2, 'size': trailer_size}
+                    trailer = data[eoi+2:]
+                    result['findings'].append({
+                        'type': 'WARNING',
+                        'detail': f'JPEG末尾に追加データ検出: {trailer_size}バイト（オフセット 0x{eoi+2:X}）- 画像終端マーカー以降にデータが付加されています。ステガノグラフィやコード隠蔽の可能性があります'
+                    })
+                    result['risk_score'] += 20
+                    result['mitre'].append('T1027.001')
+                    # Check for PHP/script in trailer
+                    trailer_text = trailer.decode('utf-8', errors='ignore')
+                    self._check_image_code(trailer_text, result, 'JPEG末尾データ')
+        elif data[:8] == b'\x89PNG\r\n\x1a\n':
+            result['format'] = 'PNG'
+            # Check for data after IEND chunk
+            iend = data.find(b'IEND')
+            if iend >= 0:
+                iend_pos = iend + 8  # IEND + CRC
+                if iend_pos < size:
+                    trailer_size = size - iend_pos
+                    if trailer_size > 16:
+                        result['trailer_data'] = {'offset': iend_pos, 'size': trailer_size}
+                        trailer = data[iend_pos:]
+                        result['findings'].append({
+                            'type': 'WARNING',
+                            'detail': f'PNG末尾に追加データ検出: {trailer_size}バイト（オフセット 0x{iend_pos:X}）- IENDチャンク以降にデータが付加されています'
+                        })
+                        result['risk_score'] += 20
+                        result['mitre'].append('T1027.001')
+                        trailer_text = trailer.decode('utf-8', errors='ignore')
+                        self._check_image_code(trailer_text, result, 'PNG末尾データ')
+        elif data[:3] == b'GIF':
+            result['format'] = 'GIF'
+        elif data[:2] == b'BM':
+            result['format'] = 'BMP'
+        elif data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+            result['format'] = 'WebP'
+
+        # Full scan for embedded code patterns
+        text = data.decode('utf-8', errors='ignore')
+        self._check_image_code(text, result, 'ファイル全体')
+
+        # EXIF analysis (JPEG)
+        if result['format'] == 'JPEG':
+            self._check_exif(data, result)
+
+        # Determine status
+        if result['risk_score'] >= 50:
+            result['status'] = 'DANGER'
+        elif result['risk_score'] >= 15:
+            result['status'] = 'WARNING'
+        result['mitre'] = list(set(result['mitre']))
+        return result
+
+    def _check_image_code(self, text, result, location):
+        """Check for embedded code patterns in image data."""
+        import re
+        patterns = [
+            (r'<\?php', 'PHP開始タグ', 'T1505.003', 50),
+            (r'<\?=', 'PHP短縮タグ', 'T1505.003', 50),
+            (r'system\s*\(', 'system()関数 - OSコマンド実行', 'T1059', 40),
+            (r'exec\s*\(', 'exec()関数 - コマンド実行', 'T1059', 40),
+            (r'eval\s*\(', 'eval()関数 - コード動的実行', 'T1059', 40),
+            (r'passthru\s*\(', 'passthru()関数 - コマンド実行', 'T1059', 40),
+            (r'shell_exec\s*\(', 'shell_exec()関数 - シェル実行', 'T1059', 40),
+            (r'base64_decode\s*\(', 'base64_decode() - エンコードされたペイロード復元', 'T1140', 30),
+            (r'<script[\s>]', '<script>タグ - JavaScript埋め込み', 'T1059.007', 35),
+            (r'javascript:', 'javascript:プロトコル', 'T1059.007', 30),
+            (r'\$_GET|\$_POST|\$_REQUEST', 'PHPスーパーグローバル - ユーザー入力受付', 'T1505.003', 40),
+            (r'document\.cookie', 'Cookie窃取コード', 'T1539', 30),
+            (r'\.exe\b', '.exe参照 - 実行ファイルへの参照', 'T1204.002', 15),
+            (r'powershell', 'PowerShell参照', 'T1059.001', 25),
+            (r'cmd\.exe', 'cmd.exe参照', 'T1059.003', 25),
+        ]
+        for pattern, desc, mitre, score in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                result['embedded_code'].append({
+                    'pattern': pattern,
+                    'description': desc,
+                    'count': len(matches),
+                    'location': location
+                })
+                result['findings'].append({
+                    'type': 'DANGER',
+                    'detail': f'埋め込みコード検出（{location}）: {desc}（{len(matches)}箇所）- 画像ファイル内に実行可能なコードが隠されています'
+                })
+                result['risk_score'] += score
+                if mitre not in result['mitre']:
+                    result['mitre'].append(mitre)
+
+    def _check_exif(self, data, result):
+        """Check EXIF data for suspicious content."""
+        import re
+        # Simple EXIF extraction - look for suspicious strings in EXIF area
+        exif_start = data.find(b'Exif\x00\x00')
+        if exif_start < 0:
+            return
+        exif_data = data[exif_start:exif_start+65536]
+        exif_text = exif_data.decode('utf-8', errors='ignore')
+
+        suspicious_patterns = [
+            (r'<\?php', 'EXIF内にPHPコード'),
+            (r'<script', 'EXIF内にJavaScript'),
+            (r'system\(', 'EXIF内にsystem()コール'),
+            (r'eval\(', 'EXIF内にeval()コール'),
+        ]
+        for pattern, desc in suspicious_patterns:
+            if re.search(pattern, exif_text, re.IGNORECASE):
+                result['exif_suspicious'].append(desc)
+                result['findings'].append({
+                    'type': 'DANGER',
+                    'detail': f'{desc} - EXIFメタデータ内に実行可能なコードが埋め込まれています。Webサーバー上でPHPとして実行される危険があります'
+                })
+                result['risk_score'] += 50
+                if 'T1505.003' not in result['mitre']:
+                    result['mitre'].append('T1505.003')
+
+    def analyze_script(self, filepath):
+        """Analyze script files (.js, .vbs, .ps1, .bat, .cmd, .wsf, .hta)."""
+        result = {
+            'type': 'SCRIPT',
+            'script_type': '',
+            'lines': 0,
+            'encoding': '',
+            'suspicious_patterns': [],
+            'obfuscation_indicators': [],
+            'status': 'SAFE',
+            'risk_score': 0,
+            'findings': [],
+            'mitre': [],
+            'code_preview': ''
+        }
+        ext = os.path.splitext(filepath)[1].lower()
+        type_map = {
+            '.js': 'JavaScript', '.vbs': 'VBScript', '.ps1': 'PowerShell',
+            '.bat': 'Batch', '.cmd': 'Batch', '.wsf': 'Windows Script File',
+            '.hta': 'HTML Application', '.py': 'Python', '.sh': 'Shell Script',
+        }
+        result['script_type'] = type_map.get(ext, 'Unknown')
+
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read(1048576)  # max 1MB
+        except Exception as e:
+            result['findings'].append({'type': 'WARNING', 'detail': f'スクリプト読み取りエラー: {e}'})
+            return result
+
+        result['lines'] = content.count('\n') + 1
+        result['code_preview'] = content[:5000]
+
+        # Detect BOM
+        with open(filepath, 'rb') as f:
+            bom = f.read(4)
+        if bom[:3] == b'\xef\xbb\xbf':
+            result['encoding'] = 'UTF-8 BOM'
+        elif bom[:2] in (b'\xff\xfe', b'\xfe\xff'):
+            result['encoding'] = 'UTF-16'
+        else:
+            result['encoding'] = 'UTF-8 / ASCII'
+
+        import re
+        # PowerShell specific
+        if ext == '.ps1':
+            ps_patterns = [
+                (r'-EncodedCommand', 'EncodedCommand - Base64エンコードされたコマンド（検知回避手法）', 'T1059.001', 40),
+                (r'Invoke-Expression|IEX', 'Invoke-Expression - 文字列をコードとして実行（難読化に悪用）', 'T1059.001', 35),
+                (r'Invoke-WebRequest|wget|curl', 'Webリクエスト - 外部からファイルをダウンロード', 'T1105', 25),
+                (r'New-Object\s+System\.Net', 'ネットワークオブジェクト生成 - 通信機能の利用', 'T1071.001', 25),
+                (r'Start-Process', 'プロセス起動 - 外部プログラムの実行', 'T1059', 20),
+                (r'Set-ItemProperty.*Run', 'レジストリRun設定 - 永続化（自動起動）', 'T1547.001', 35),
+                (r'\[Convert\]::FromBase64String', 'Base64デコード - 隠蔽されたペイロードの復元', 'T1140', 30),
+                (r'Add-MpPreference.*ExclusionPath', 'Defender除外設定 - セキュリティ回避', 'T1562.001', 40),
+                (r'bypass|unrestricted', '実行ポリシー回避', 'T1059.001', 20),
+            ]
+            for pattern, desc, mitre, score in ps_patterns:
+                matches = re.findall(pattern, content, re.IGNORECASE)
+                if matches:
+                    result['suspicious_patterns'].append({'pattern': pattern, 'description': desc, 'count': len(matches)})
+                    result['findings'].append({'type': 'DANGER' if score >= 30 else 'WARNING', 'detail': f'PowerShellパターン検出: {desc}（{len(matches)}箇所）'})
+                    result['risk_score'] += score
+                    if mitre not in result['mitre']:
+                        result['mitre'].append(mitre)
+
+        # Batch specific
+        elif ext in ('.bat', '.cmd'):
+            bat_patterns = [
+                (r'powershell', 'PowerShell呼び出し', 'T1059.001', 30),
+                (r'certutil.*-decode', 'certutilデコード - Base64ファイルの復号', 'T1140', 35),
+                (r'bitsadmin.*transfer', 'BITSダウンロード - ファイル取得', 'T1105', 30),
+                (r'reg\s+add.*Run', 'レジストリRun追加 - 永続化', 'T1547.001', 35),
+                (r'schtasks\s*/create', 'タスクスケジューラ登録 - 永続化', 'T1053.005', 30),
+                (r'net\s+user', 'ユーザー操作コマンド', 'T1136', 25),
+                (r'del\s+/[fqs]', '強制削除 - 証拠隠滅の可能性', 'T1070.004', 20),
+            ]
+            for pattern, desc, mitre, score in bat_patterns:
+                matches = re.findall(pattern, content, re.IGNORECASE)
+                if matches:
+                    result['suspicious_patterns'].append({'pattern': pattern, 'description': desc, 'count': len(matches)})
+                    result['findings'].append({'type': 'DANGER' if score >= 30 else 'WARNING', 'detail': f'バッチパターン検出: {desc}（{len(matches)}箇所）'})
+                    result['risk_score'] += score
+                    if mitre not in result['mitre']:
+                        result['mitre'].append(mitre)
+
+        # JavaScript / VBScript / General
+        general_patterns = [
+            (r'eval\s*\(', 'eval() - 動的コード実行（難読化に悪用）', 'T1059.007', 30),
+            (r'document\.write', 'document.write - DOM操作', 'T1059.007', 10),
+            (r'WScript\.Shell', 'WScript.Shell - コマンド実行', 'T1059.005', 35),
+            (r'ActiveXObject', 'ActiveXObject - COM操作', 'T1559.001', 25),
+            (r'new\s+Function\s*\(', 'new Function() - 動的関数生成', 'T1059.007', 30),
+            (r'atob\s*\(|btoa\s*\(', 'Base64エンコード/デコード', 'T1132.001', 15),
+            (r'XMLHttpRequest|fetch\s*\(', 'HTTP通信 - 外部との通信', 'T1071.001', 15),
+            (r'\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}', '16進エスケープ多用 - 難読化の兆候', 'T1027', 25),
+            (r'String\.fromCharCode', 'fromCharCode - 文字コード変換（難読化）', 'T1027', 20),
+            (r'unescape\s*\(', 'unescape - URLデコード（難読化）', 'T1027', 20),
+        ]
+        for pattern, desc, mitre, score in general_patterns:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            if matches:
+                result['suspicious_patterns'].append({'pattern': pattern, 'description': desc, 'count': len(matches)})
+                if not any(fd['detail'].endswith(f'（{len(matches)}箇所）') and desc in fd['detail'] for fd in result['findings']):
+                    result['findings'].append({'type': 'DANGER' if score >= 30 else 'WARNING', 'detail': f'スクリプトパターン検出: {desc}（{len(matches)}箇所）'})
+                    result['risk_score'] += score
+                    if mitre not in result['mitre']:
+                        result['mitre'].append(mitre)
+
+        # Obfuscation indicators
+        long_lines = [l for l in content.split('\n') if len(l) > 1000]
+        if long_lines:
+            result['obfuscation_indicators'].append(f'超長行: {len(long_lines)}行（1000文字超）')
+            result['findings'].append({'type': 'WARNING', 'detail': f'難読化の兆候: 超長行が{len(long_lines)}行検出（1行1000文字以上）- コードを1行に詰め込む難読化手法の可能性'})
+            result['risk_score'] += 15
+
+        if result['risk_score'] >= 50:
+            result['status'] = 'DANGER'
+        elif result['risk_score'] >= 15:
+            result['status'] = 'WARNING'
+        result['mitre'] = list(set(result['mitre']))
+        return result
+
+    def analyze_archive(self, filepath):
+        """Analyze archive files (.zip, .7z, .rar) for suspicious content."""
+        import zipfile
+        result = {
+            'type': 'ARCHIVE',
+            'archive_type': '',
+            'entries': [],
+            'total_entries': 0,
+            'total_uncompressed': 0,
+            'password_protected': False,
+            'suspicious_entries': [],
+            'status': 'SAFE',
+            'risk_score': 0,
+            'findings': [],
+            'mitre': []
+        }
+        ext = os.path.splitext(filepath)[1].lower()
+
+        if ext in ('.zip', '.zipx'):
+            result['archive_type'] = 'ZIP'
+            if not zipfile.is_zipfile(filepath):
+                result['findings'].append({'type': 'INFO', 'detail': '有効なZIPファイルではありません'})
+                return result
+            try:
+                with zipfile.ZipFile(filepath, 'r') as zf:
+                    result['total_entries'] = len(zf.namelist())
+                    for zi in zf.infolist():
+                        entry = {
+                            'name': zi.filename,
+                            'size': zi.file_size,
+                            'compressed': zi.compress_size,
+                            'is_dir': zi.is_dir(),
+                        }
+                        result['entries'].append(entry)
+                        result['total_uncompressed'] += zi.file_size
+
+                        if not zi.is_dir():
+                            name_lower = zi.filename.lower()
+                            # Double extension
+                            import re
+                            if re.search(r'\.(pdf|doc|docx|txt|jpg|png)\.(exe|scr|bat|cmd|ps1|vbs|js|hta)', name_lower):
+                                result['suspicious_entries'].append({'name': zi.filename, 'reason': '二重拡張子 - ファイル種別を偽装しています'})
+                                result['findings'].append({'type': 'DANGER', 'detail': f'二重拡張子検出: {zi.filename} - 実行ファイルを文書や画像に偽装する攻撃手法です'})
+                                result['risk_score'] += 40
+                                if 'T1036.007' not in result['mitre']:
+                                    result['mitre'].append('T1036.007')
+
+                            # Executable in archive
+                            if any(name_lower.endswith(e) for e in ['.exe', '.scr', '.dll', '.sys', '.drv']):
+                                result['suspicious_entries'].append({'name': zi.filename, 'reason': '実行ファイル格納'})
+                                result['findings'].append({'type': 'WARNING', 'detail': f'実行ファイル格納: {zi.filename} - アーカイブ内に実行可能ファイルが含まれています'})
+                                result['risk_score'] += 20
+
+                            # Script in archive
+                            if any(name_lower.endswith(e) for e in ['.bat', '.cmd', '.ps1', '.vbs', '.js', '.wsf', '.hta']):
+                                result['suspicious_entries'].append({'name': zi.filename, 'reason': 'スクリプトファイル格納'})
+                                result['findings'].append({'type': 'WARNING', 'detail': f'スクリプト格納: {zi.filename} - アーカイブ内にスクリプトファイルが含まれています'})
+                                result['risk_score'] += 15
+
+                            # Path traversal
+                            if '..' in zi.filename or zi.filename.startswith('/'):
+                                result['suspicious_entries'].append({'name': zi.filename, 'reason': 'パストラバーサル'})
+                                result['findings'].append({'type': 'DANGER', 'detail': f'パストラバーサル検出: {zi.filename} - 展開時にアーカイブ外のディレクトリにファイルが書き込まれる危険があります'})
+                                result['risk_score'] += 50
+                                if 'T1204.002' not in result['mitre']:
+                                    result['mitre'].append('T1204.002')
+
+                            # Zip bomb detection (compression ratio)
+                            if zi.compress_size > 0 and zi.file_size / zi.compress_size > 100:
+                                result['findings'].append({'type': 'WARNING', 'detail': f'異常な圧縮率: {zi.filename}（圧縮率 {zi.file_size/zi.compress_size:.0f}倍）- ZIPボム（展開爆弾）の可能性があります'})
+                                result['risk_score'] += 30
+
+                    # Password check
+                    try:
+                        for zi in zf.infolist():
+                            if not zi.is_dir():
+                                zf.read(zi.filename)
+                                break
+                    except RuntimeError:
+                        result['password_protected'] = True
+                        result['findings'].append({'type': 'WARNING', 'detail': 'パスワード保護されたアーカイブ - マルウェア配布時にセキュリティスキャンを回避する目的でパスワードが設定されることがあります'})
+                        result['risk_score'] += 15
+
+            except Exception as e:
+                result['findings'].append({'type': 'WARNING', 'detail': f'ZIP解析エラー: {e}'})
+        else:
+            # RAR, 7z etc - basic header check
+            try:
+                with open(filepath, 'rb') as f:
+                    header = f.read(8)
+                if header[:7] == b'Rar!\x1a\x07\x00' or header[:7] == b'Rar!\x1a\x07\x01':
+                    result['archive_type'] = 'RAR'
+                elif header[:6] == b'7z\xbc\xaf\x27\x1c':
+                    result['archive_type'] = '7z'
+                else:
+                    result['archive_type'] = ext.upper().replace('.', '')
+                result['findings'].append({'type': 'INFO', 'detail': f'{result["archive_type"]}形式 - 内部解析にはZIP形式への変換が必要です'})
+            except Exception as e:
+                result['findings'].append({'type': 'WARNING', 'detail': f'アーカイブヘッダ読み取りエラー: {e}'})
+
+        if result['risk_score'] >= 50:
+            result['status'] = 'DANGER'
+        elif result['risk_score'] >= 15:
+            result['status'] = 'WARNING'
+        result['mitre'] = list(set(result['mitre']))
+        return result
+
+    def analyze_html_svg(self, filepath):
+        """Analyze HTML/SVG/MHT files for embedded scripts and suspicious content."""
+        import re
+        result = {
+            'type': 'HTML_SVG',
+            'file_type': '',
+            'scripts': [],
+            'iframes': [],
+            'external_resources': [],
+            'suspicious_patterns': [],
+            'status': 'SAFE',
+            'risk_score': 0,
+            'findings': [],
+            'mitre': []
+        }
+        ext = os.path.splitext(filepath)[1].lower()
+        result['file_type'] = 'SVG' if ext == '.svg' else 'MHT' if ext in ('.mht', '.mhtml') else 'HTML'
+
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read(2097152)  # max 2MB
+        except Exception as e:
+            result['findings'].append({'type': 'WARNING', 'detail': f'ファイル読み取りエラー: {e}'})
+            return result
+
+        # Script tags
+        scripts = re.findall(r'<script[^>]*>(.*?)</script>', content, re.IGNORECASE | re.DOTALL)
+        result['scripts'] = [{'content': s[:3000], 'length': len(s)} for s in scripts]
+        if scripts:
+            result['findings'].append({'type': 'WARNING', 'detail': f'<script>タグ検出: {len(scripts)}個 - JavaScriptコードが埋め込まれています'})
+            result['risk_score'] += 10
+
+        # External script sources
+        ext_scripts = re.findall(r'<script[^>]+src\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
+        for src in ext_scripts:
+            result['external_resources'].append({'type': 'script', 'url': src})
+            if not src.startswith(('https://cdn.', 'https://ajax.', 'https://code.')):
+                result['findings'].append({'type': 'WARNING', 'detail': f'外部スクリプト読み込み: {self._defang_url(src)}'})
+                result['risk_score'] += 15
+
+        # Iframes
+        iframes = re.findall(r'<iframe[^>]+src\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
+        for src in iframes:
+            result['iframes'].append(src)
+            result['findings'].append({'type': 'WARNING', 'detail': f'iframe検出: {self._defang_url(src)} - 別サイトのコンテンツを埋め込んでいます'})
+            result['risk_score'] += 20
+
+        # Hidden iframes
+        hidden_iframes = re.findall(r'<iframe[^>]*(display\s*:\s*none|visibility\s*:\s*hidden|width\s*=\s*["\']?0|height\s*=\s*["\']?0)', content, re.IGNORECASE)
+        if hidden_iframes:
+            result['findings'].append({'type': 'DANGER', 'detail': f'非表示iframe検出: {len(hidden_iframes)}個 - ユーザーに見えない形で外部コンテンツを読み込んでいます。ドライブバイダウンロード攻撃に使用される手法です'})
+            result['risk_score'] += 40
+            result['mitre'].append('T1189')
+
+        # Dangerous patterns
+        html_patterns = [
+            (r'eval\s*\(', 'eval() - 動的コード実行', 'T1059.007', 25),
+            (r'document\.cookie', 'Cookie操作 - セッションハイジャック', 'T1539', 25),
+            (r'document\.location\s*=', 'ページリダイレクト', 'T1204.001', 15),
+            (r'window\.location\s*=', 'ページリダイレクト', 'T1204.001', 15),
+            (r'unescape\s*\(.*%', 'URLデコード - 難読化の兆候', 'T1027', 20),
+            (r'fromCharCode', 'fromCharCode - 文字コード変換（難読化）', 'T1027', 20),
+            (r'data:text/html', 'data URI - インラインHTMLコンテンツ', 'T1027', 15),
+        ]
+
+        # SVG specific
+        if result['file_type'] == 'SVG':
+            html_patterns.extend([
+                (r'<foreignObject', 'foreignObject - SVG内にHTMLを埋め込み', 'T1059.007', 25),
+                (r'xlink:href\s*=\s*["\']javascript:', 'xlink javascript - SVGリンクでJS実行', 'T1059.007', 35),
+                (r'onload\s*=', 'onloadイベント - 読み込み時にコード実行', 'T1059.007', 25),
+            ])
+
+        for pattern, desc, mitre, score in html_patterns:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            if matches:
+                result['suspicious_patterns'].append({'pattern': pattern, 'description': desc, 'count': len(matches)})
+                result['findings'].append({'type': 'DANGER' if score >= 25 else 'WARNING', 'detail': f'HTMLパターン検出: {desc}（{len(matches)}箇所）'})
+                result['risk_score'] += score
+                if mitre not in result['mitre']:
+                    result['mitre'].append(mitre)
+
+        if result['risk_score'] >= 50:
+            result['status'] = 'DANGER'
+        elif result['risk_score'] >= 15:
+            result['status'] = 'WARNING'
+        result['mitre'] = list(set(result['mitre']))
+        return result
+
+    def analyze_executable(self, filepath):
+        """Analyze PE executable files (.exe, .dll, .sys, .scr)."""
+        import struct
+        result = {
+            'type': 'EXECUTABLE',
+            'pe_type': '',
+            'architecture': '',
+            'compile_time': '',
+            'entry_point': '',
+            'sections': [],
+            'imports_suspicious': [],
+            'strings_suspicious': [],
+            'packer_detected': '',
+            'signed': False,
+            'status': 'SAFE',
+            'risk_score': 0,
+            'findings': [],
+            'mitre': []
+        }
+        try:
+            with open(filepath, 'rb') as f:
+                data = f.read(min(os.path.getsize(filepath), 10485760))  # max 10MB
+        except Exception as e:
+            result['findings'].append({'type': 'WARNING', 'detail': f'PE読み取りエラー: {e}'})
+            return result
+
+        if data[:2] != b'MZ':
+            result['findings'].append({'type': 'INFO', 'detail': '有効なPEファイルではありません'})
+            return result
+
+        try:
+            # PE header offset
+            pe_offset = struct.unpack_from('<I', data, 0x3C)[0]
+            if data[pe_offset:pe_offset+4] != b'PE\x00\x00':
+                result['findings'].append({'type': 'WARNING', 'detail': 'PEシグネチャが不正です'})
+                return result
+
+            # Machine type
+            machine = struct.unpack_from('<H', data, pe_offset + 4)[0]
+            arch_map = {0x14c: 'x86 (32bit)', 0x8664: 'x64 (64bit)', 0xaa64: 'ARM64'}
+            result['architecture'] = arch_map.get(machine, f'不明 (0x{machine:X})')
+
+            # Compile timestamp
+            timestamp = struct.unpack_from('<I', data, pe_offset + 8)[0]
+            from datetime import datetime, timezone
+            try:
+                result['compile_time'] = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            except:
+                result['compile_time'] = f'0x{timestamp:X}'
+
+            # Number of sections
+            num_sections = struct.unpack_from('<H', data, pe_offset + 6)[0]
+            optional_hdr_size = struct.unpack_from('<H', data, pe_offset + 20)[0]
+            section_offset = pe_offset + 24 + optional_hdr_size
+
+            # Entry point
+            if optional_hdr_size >= 16:
+                ep = struct.unpack_from('<I', data, pe_offset + 40)[0]
+                result['entry_point'] = f'0x{ep:X}'
+
+            # Sections
+            for i in range(min(num_sections, 32)):
+                s_off = section_offset + i * 40
+                if s_off + 40 > len(data):
+                    break
+                s_name = data[s_off:s_off+8].replace(b'\x00', b'').decode('ascii', errors='ignore')
+                s_vsize = struct.unpack_from('<I', data, s_off + 8)[0]
+                s_rsize = struct.unpack_from('<I', data, s_off + 16)[0]
+                s_chars = struct.unpack_from('<I', data, s_off + 36)[0]
+                perms = ''
+                if s_chars & 0x20000000: perms += 'X'
+                if s_chars & 0x40000000: perms += 'R'
+                if s_chars & 0x80000000: perms += 'W'
+                result['sections'].append({
+                    'name': s_name, 'virtual_size': s_vsize,
+                    'raw_size': s_rsize, 'permissions': perms
+                })
+                # High entropy section
+                if s_rsize > 512:
+                    s_data_start = struct.unpack_from('<I', data, s_off + 20)[0]
+                    s_sample = data[s_data_start:s_data_start + min(s_rsize, 65536)]
+                    if s_sample:
+                        import math
+                        byte_counts = [0] * 256
+                        for b in s_sample:
+                            byte_counts[b] += 1
+                        entropy = 0
+                        for c in byte_counts:
+                            if c > 0:
+                                p = c / len(s_sample)
+                                entropy -= p * math.log2(p)
+                        if entropy >= 7.5:
+                            result['findings'].append({
+                                'type': 'WARNING',
+                                'detail': f'高エントロピーセクション: {s_name}（{entropy:.1f}）- パッキングや暗号化されたデータの可能性'
+                            })
+                            result['risk_score'] += 15
+                # RWX section
+                if 'R' in perms and 'W' in perms and 'X' in perms:
+                    result['findings'].append({
+                        'type': 'WARNING',
+                        'detail': f'RWXセクション: {s_name} - 読み書き実行可能。自己書き換えコードやシェルコードの兆候'
+                    })
+                    result['risk_score'] += 25
+                    if 'T1055' not in result['mitre']:
+                        result['mitre'].append('T1055')
+
+        except Exception as e:
+            result['findings'].append({'type': 'WARNING', 'detail': f'PEヘッダ解析エラー: {e}'})
+
+        # Suspicious imports (string scan)
+        text = data.decode('ascii', errors='ignore')
+        import_patterns = [
+            ('VirtualAllocEx', 'リモートメモリ確保 - プロセスインジェクションに使用', 'T1055', 30),
+            ('WriteProcessMemory', 'リモートメモリ書き込み - プロセスインジェクションに使用', 'T1055', 30),
+            ('CreateRemoteThread', 'リモートスレッド作成 - プロセスインジェクションに使用', 'T1055', 35),
+            ('NtUnmapViewOfSection', 'セクションアンマップ - プロセスホロウイングに使用', 'T1055.012', 35),
+            ('IsDebuggerPresent', 'デバッガ検出 - 解析妨害', 'T1497.001', 15),
+            ('SetWindowsHookEx', 'フック設定 - キーロガーに使用される可能性', 'T1056.001', 25),
+            ('InternetOpenUrl', 'URL接続 - 外部との通信', 'T1071.001', 15),
+            ('URLDownloadToFile', 'ファイルダウンロード - 追加マルウェア取得', 'T1105', 25),
+        ]
+        for api, desc, mitre, score in import_patterns:
+            if api in text:
+                result['imports_suspicious'].append({'api': api, 'description': desc})
+                result['findings'].append({'type': 'WARNING', 'detail': f'疑わしいAPI検出: {api} - {desc}'})
+                result['risk_score'] += score
+                if mitre not in result['mitre']:
+                    result['mitre'].append(mitre)
+
+        # Packer detection
+        packer_signs = [
+            (b'UPX0', 'UPX'), (b'UPX1', 'UPX'), (b'.aspack', 'ASPack'),
+            (b'.adata', 'ASPack'), (b'MEW', 'MEW'), (b'.nsp0', 'NsPack'),
+            (b'.themida', 'Themida'), (b'.vmp0', 'VMProtect'),
+        ]
+        for sig, name in packer_signs:
+            if sig in data:
+                result['packer_detected'] = name
+                result['findings'].append({
+                    'type': 'WARNING',
+                    'detail': f'パッカー検出: {name} - 実行ファイルが圧縮/暗号化パッカーで保護されています。静的解析の回避に使用されます'
+                })
+                result['risk_score'] += 20
+                if 'T1027.002' not in result['mitre']:
+                    result['mitre'].append('T1027.002')
+                break
+
+        if result['risk_score'] >= 50:
+            result['status'] = 'DANGER'
+        elif result['risk_score'] >= 15:
+            result['status'] = 'WARNING'
+        result['mitre'] = list(set(result['mitre']))
+        return result
+
     def analyze_file_deep(self, filepath):
         """Run deep analysis on a single file based on its type. Returns detailed result dict."""
         import os
@@ -1496,9 +2121,19 @@ class FileInspector:
                 result['analysis'] = self.analyze_ooxml(filepath)
             elif ext == '.pdf':
                 result['analysis'] = self.analyze_pdf(filepath)
+            elif ext in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.tif'):
+                result['analysis'] = self.analyze_image(filepath)
+            elif ext in ('.js', '.vbs', '.ps1', '.bat', '.cmd', '.wsf', '.hta', '.py', '.sh'):
+                result['analysis'] = self.analyze_script(filepath)
+            elif ext in ('.zip', '.zipx', '.rar', '.7z', '.tar', '.gz', '.bz2'):
+                result['analysis'] = self.analyze_archive(filepath)
+            elif ext in ('.html', '.htm', '.svg', '.mht', '.mhtml'):
+                result['analysis'] = self.analyze_html_svg(filepath)
+            elif ext in ('.exe', '.dll', '.sys', '.scr', '.drv', '.ocx'):
+                result['analysis'] = self.analyze_executable(filepath)
             else:
-                result['analysis'] = {'type': 'UNSUPPORTED', 'findings': [
-                    {'type': 'INFO', 'detail': f'Deep analysis not yet implemented for {ext}'}
+                result['analysis'] = {'type': 'OTHER', 'findings': [
+                    {'type': 'INFO', 'detail': f'{ext} 形式 - 基本検査のみ実施（構造解析は対応予定）'}
                 ], 'status': 'INFO', 'mitre': []}
         except Exception as e:
             result['error'] = str(e)
