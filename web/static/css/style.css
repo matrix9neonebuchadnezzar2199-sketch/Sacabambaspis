@@ -2449,3 +2449,50 @@ table tbody tr:focus-within {
         width: 100% !important;
     }
 }
+
+
+/* P25-A: Search highlight */
+mark.search-hl {
+    background: rgba(255, 200, 0, 0.35);
+    color: inherit;
+    padding: 1px 2px;
+    border-radius: 2px;
+}
+
+/* P25-B: Sortable headers */
+th[data-sortable]:hover {
+    background: var(--bg-hover);
+}
+th[data-sortable] .sort-arrow {
+    transition: opacity 0.2s;
+}
+th[data-sortable]:hover .sort-arrow {
+    opacity: 1 !important;
+}
+
+/* P25-C: CSV buttons */
+#btn-csv-current {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}
+#btn-csv-current:hover {
+    background: rgba(76, 175, 80, 0.25);
+}
+#btn-csv-all {
+    background: rgba(156, 39, 176, 0.15);
+    color: #ce93d8;
+    border: 1px solid rgba(156, 39, 176, 0.3);
+}
+#btn-csv-all:hover {
+    background: rgba(156, 39, 176, 0.25);
+}
+
+/* P25: Reason column - full section display */
+.cell-reason {
+    white-space: pre-wrap;
+    line-height: 1.6;
+    font-size: 0.82rem;
+    max-width: 500px;
+    overflow-wrap: break-word;
+}

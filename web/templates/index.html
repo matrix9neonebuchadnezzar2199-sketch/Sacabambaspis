@@ -443,6 +443,8 @@
                 <button id="btn-danger" class="filter-btn" onclick="toggleDangerFilter()">🔴 危険のみ (OFF)</button>
                 <button id="btn-self" class="filter-btn" onclick="toggleSelfFilter()">🐟 自己除外 (OFF)</button>
                 <button id="btn-report" class="filter-btn" onclick="generateReport()" style="margin-left:auto;">📄 レポート出力</button>
+                <button id="btn-csv-current" class="filter-btn" onclick="exportCurrentTabCSV()">📥 CSV出力</button>
+                <button id="btn-csv-all" class="filter-btn" onclick="exportAllCSV()">📦 全CSV</button>
             </div>
 
 
@@ -934,8 +936,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         loadHistoryList();
     });
-
-
 });
 
 /* --- サイドバー制御 --- */
@@ -1110,6 +1110,22 @@ function renderImportantTab() {
         if (warningFilter && status !== 'WARNING') return;
         if (hideSafeFilter && (status === 'SAFE' || status === 'INFO')) return;
 
+        var tabLabel = getTabLabel(tab);
+        var name = d.name || d.exe_name || d.artifact || d.program_name || d.app_name || d.process || d.id || d.pid || '-';
+        var reason = d.reason || d.desc || '';
+        var time = d.time || d.timestamp || '';
+
+        // キーワード絞り込み
+        var keyword = document.getElementById('id-filter').value.toLowerCase();
+        if (keyword) {
+            var searchText = (name + ' ' + reason + ' ' + time + ' ' + tabLabel).toLowerCase();
+            if (!searchText.includes(keyword)) return;
+        }
+
+        visibleCount++;
+
+
+
         visibleCount++;
         var tabLabel = getTabLabel(tab);
         var name = d.name || d.exe_name || d.artifact || d.program_name || d.app_name || d.process || d.id || d.pid || '-';
@@ -1132,6 +1148,19 @@ function renderImportantTab() {
         el.innerHTML = '<tr class="empty-row"><td colspan="7">フィルタ条件に一致する重要アーティファクトはありません</td></tr>';
     } else {
         el.innerHTML = html;
+        // P25-A: 重要タブ検索ハイライト
+        var keyword = document.getElementById('id-filter').value.toLowerCase();
+        if (keyword) {
+            el.querySelectorAll('td').forEach(function(td) {
+                if (td.querySelector('input,button,select')) return;
+                var text = td.textContent;
+                if (text.toLowerCase().includes(keyword)) {
+                    var regex = new RegExp('(' + keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                    td.innerHTML = td.innerHTML.replace(regex, '<mark class="search-hl">$1</mark>');
+                }
+            });
+        }
+
     }
     updateImportantFilteredCount(visibleCount);
 }
@@ -1521,7 +1550,19 @@ function renderTableGeneric(id, data, keys, keyword, tab, rowFn) {
         if (result.extra && result.extra.includes('row-important')) rowClass = 'row-important';
         return '<tr class="' + rowClass + '">' + result.html + '</tr>';
     }).join('');
+    // P25-A: Search highlight
+    if (keyword) {
+        el.querySelectorAll('td').forEach(function(td) {
+            if (td.querySelector('input,button,select')) return;
+            var text = td.textContent;
+            if (text.toLowerCase().includes(keyword)) {
+                var regex = new RegExp('(' + keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                td.innerHTML = td.innerHTML.replace(regex, '<mark class="search-hl">$1</mark>');
+            }
+        });
+    }
 }
+
 
 /* --- フィルター --- */
 function filterAll() {
@@ -2156,7 +2197,8 @@ applySettings(sacaSettings);
 // ============================================
 // P18: 3レベル説明エンジン
 // ============================================
-var explanationLevel = 'intermediate';
+var explanationLevel = 'advanced';
+
 
 function initExplanationLevel() {
     try {
@@ -2204,51 +2246,9 @@ function applyExplanationLevelUI() {
 
 function filterDescByLevel(desc) {
     if (!desc || typeof desc !== 'string') return desc || '';
-    
-    // セクション分割: 【xxx】で始まるブロックを抽出
-    var sectionPattern = /【[^】]+】/g;
-    var matches = [];
-    var match;
-    while ((match = sectionPattern.exec(desc)) !== null) {
-        matches.push({ index: match.index, header: match[0] });
-    }
-    
-    // セクションが見つからない場合はそのまま返す
-    if (matches.length === 0) return desc;
-    
-    // 各セクションのテキストを抽出
-    var sections = [];
-    for (var i = 0; i < matches.length; i++) {
-        var start = matches[i].index;
-        var end = (i + 1 < matches.length) ? matches[i + 1].index : desc.length;
-        sections.push({
-            header: matches[i].header,
-            text: desc.substring(start, end).trim()
-        });
-    }
-    
-    // レベルに応じてフィルタ
-    var allowed;
-    switch (explanationLevel) {
-        case 'beginner':
-            allowed = ['【検知内容】'];
-            break;
-        case 'intermediate':
-            allowed = ['【検知内容】', '【なぜ危険か】', '【MITRE ATT&CK】'];
-            break;
-        case 'advanced':
-        default:
-            // 全セクション表示
-            return desc;
-    }
-    
-    var filtered = sections.filter(function(s) {
-        return allowed.indexOf(s.header) >= 0;
-    });
-    
-    if (filtered.length === 0) return desc;
-    return filtered.map(function(s) { return s.text; }).join('\n\n');
+    return desc;
 }
+
 
 // 初期化
 initExplanationLevel();
@@ -2856,6 +2856,148 @@ function generateReport() {
     }
 }
 
+// ================================================================
+// P25-B: Column Sort
+// ================================================================
+(function() {
+    document.addEventListener('click', function(e) {
+        var th = e.target.closest('th[data-sortable]');
+        if (!th) return;
+        var table = th.closest('table');
+        var tbody = table.querySelector('tbody');
+        if (!tbody || tbody.rows.length === 0) return;
+        var colIdx = Array.from(th.parentNode.children).indexOf(th);
+        var curDir = th.getAttribute('data-sort-dir') || 'none';
+        var newDir = curDir === 'asc' ? 'desc' : 'asc';
+
+        // Reset all headers in this table
+        th.parentNode.querySelectorAll('th[data-sortable]').forEach(function(h) {
+            h.setAttribute('data-sort-dir', 'none');
+            var arrow = h.querySelector('.sort-arrow');
+            if (arrow) arrow.textContent = '⇅';
+        });
+        th.setAttribute('data-sort-dir', newDir);
+        var arrow = th.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = newDir === 'asc' ? '▲' : '▼';
+
+        var statusOrder = {'DANGER':0,'WARNING':1,'INFO':2,'SAFE':3};
+        var rows = Array.from(tbody.rows);
+        rows.sort(function(a, b) {
+            var aVal = (a.cells[colIdx] ? a.cells[colIdx].textContent.trim() : '');
+            var bVal = (b.cells[colIdx] ? b.cells[colIdx].textContent.trim() : '');
+            // Status sort
+            if (aVal in statusOrder && bVal in statusOrder) {
+                return newDir === 'asc' ? statusOrder[aVal] - statusOrder[bVal] : statusOrder[bVal] - statusOrder[aVal];
+            }
+            // Numeric sort
+            var aNum = parseFloat(aVal); var bNum = parseFloat(bVal);
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+                return newDir === 'asc' ? aNum - bNum : bNum - aNum;
+            }
+            // String sort
+            return newDir === 'asc' ? aVal.localeCompare(bVal, 'ja') : bVal.localeCompare(aVal, 'ja');
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+    });
+})();
+
+function enableSortHeaders() {
+    document.querySelectorAll('.data-table-wrapper table thead th').forEach(function(th) {
+        if (th.textContent.trim() === '☑' || th.textContent.trim() === '操作') return;
+        if (th.hasAttribute('data-sortable')) return;
+        th.setAttribute('data-sortable', '');
+        th.style.cursor = 'pointer';
+        th.title = 'Click to sort';
+        th.innerHTML = th.innerHTML + ' <span class="sort-arrow" style="font-size:10px;opacity:0.5;">⇅</span>';
+    });
+}
+
+// Run after initial render
+setTimeout(enableSortHeaders, 2000);
+// Re-run after data load
+var _origFilterAll = filterAll;
+filterAll = function() {
+    _origFilterAll();
+    setTimeout(enableSortHeaders, 100);
+};
+
+// ================================================================
+// P25-C: CSV Export (per category, not merged)
+// ================================================================
+function exportTableCSV(tbodyId, filename) {
+    var tbody = document.getElementById(tbodyId);
+    if (!tbody) { alert('Data not found'); return; }
+    var table = tbody.closest('table');
+    var lines = [];
+
+    // Header
+    var headers = [];
+    table.querySelectorAll('thead th').forEach(function(th) {
+        var text = th.textContent.replace(/[⇅▲▼]/g, '').trim();
+        headers.push('"' + text.replace(/"/g, '""') + '"');
+    });
+    lines.push(headers.join(','));
+
+    // Rows (all, not just visible)
+    tbody.querySelectorAll('tr').forEach(function(row) {
+        if (row.classList.contains('empty-row')) return;
+        var cells = [];
+        row.querySelectorAll('td').forEach(function(td) {
+            var text = td.textContent.trim();
+            cells.push('"' + text.replace(/"/g, '""') + '"');
+        });
+        lines.push(cells.join(','));
+    });
+
+    if (lines.length <= 1) { alert('No data to export'); return; }
+
+    var bom = '\uFEFF';
+    var blob = new Blob([bom + lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+function exportAllCSV() {
+    var categories = [
+        {id: 'list-logs', name: 'eventlog'},
+        {id: 'list-proc', name: 'process'},
+        {id: 'list-memory', name: 'memory'},
+        {id: 'list-persist', name: 'persistence'},
+        {id: 'list-network', name: 'network'},
+        {id: 'list-evidence', name: 'evidence'},
+        {id: 'list-pca', name: 'pca'},
+        {id: 'list-ads', name: 'ads'},
+        {id: 'list-wsl', name: 'wsl'},
+        {id: 'list-cam', name: 'cam'},
+        {id: 'list-srum', name: 'srum'},
+        {id: 'list-recall', name: 'recall'},
+        {id: 'list-important', name: 'important'}
+    ];
+    var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    var exported = 0;
+    categories.forEach(function(cat) {
+        var tbody = document.getElementById(cat.id);
+        if (tbody && tbody.querySelectorAll('tr:not(.empty-row)').length > 0) {
+            exportTableCSV(cat.id, 'sacabambaspis_' + cat.name + '_' + ts + '.csv');
+            exported++;
+        }
+    });
+    if (exported === 0) alert('No data to export');
+}
+
+function exportCurrentTabCSV() {
+    var activeCard = document.querySelector('.card.active');
+    if (!activeCard) { alert('No active tab'); return; }
+    var tbody = activeCard.querySelector('tbody');
+    if (!tbody || !tbody.id) { alert('This tab has no exportable table'); return; }
+    var tabName = tbody.id.replace('list-', '');
+    var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    exportTableCSV(tbody.id, 'sacabambaspis_' + tabName + '_' + ts + '.csv');
+}
+
 </script>
 
 <!-- P13: トースト通知コンテナ -->
@@ -2900,27 +3042,6 @@ function generateReport() {
                         <span style="font-size:17px;color:var(--text-muted)">A</span>
                         <span class="font-slider-value" id="font-size-value">14px</span>
                     </div>
-                </div>
-            </div>
-
-
-            <div class="settings-section">
-                <div class="settings-section-title">解説レベル</div>
-                <div class="settings-row">
-                    <span class="settings-label">
-                        解説の詳しさ
-                        <small>初心者〜上級者</small>
-                    </span>
-                    <div class="theme-selector">
-                        <button class="theme-btn" id="lvl-beginner" data-level="beginner" onclick="setExplanationLevel('beginner')">初心者</button>
-                        <button class="theme-btn active" id="lvl-intermediate" data-level="intermediate" onclick="setExplanationLevel('intermediate')">中級者</button>
-                        <button class="theme-btn" id="lvl-advanced" data-level="advanced" onclick="setExplanationLevel('advanced')">上級者</button>
-                    </div>
-                </div>
-                <div class="settings-row">
-                    <span class="settings-label" style="flex:1;">
-                        <small id="level-description" style="color:var(--text-muted);">検知内容 + 危険性 + MITRE を表示</small>
-                    </span>
                 </div>
             </div>
 
