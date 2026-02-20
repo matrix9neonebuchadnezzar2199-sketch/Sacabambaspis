@@ -1,7 +1,6 @@
 ﻿# ビルド成果物
 build/
 dist/
-*.spec
 *.exe
 
 # Python
@@ -26,3 +25,4 @@ backup/
 # OS
 Thumbs.db
 Desktop.ini
+

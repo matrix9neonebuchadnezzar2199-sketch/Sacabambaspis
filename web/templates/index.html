@@ -894,6 +894,14 @@
                     <span style="color:var(--accent-warning);">⚠ 管理者権限が必要です。ダンプファイルには機密情報が含まれる場合があります。</span>
                 </div>
 
+                <!-- 共通: 出力先フォルダ -->
+                <div style="padding:10px 16px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:6px; margin:10px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <span style="font-weight:bold; white-space:nowrap;">📂 出力先フォルダ:</span>
+                    <input type="text" id="memdump-common-output-dir" class="search-input" style="flex:1; min-width:300px;" readonly>
+                    <button class="filter-btn" onclick="memdumpBrowseOutputDir()">📁 参照</button>
+                    <span id="memdump-outputdir-status" class="cell-sub"></span>
+                </div>
+
                 <!-- 上ペイン: プロセス選択 -->
                 <div class="memdump-upper-pane" id="memdump-upper">
                     <div style="padding:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -922,11 +930,9 @@
                 <div class="memdump-lower-pane" id="memdump-lower">
                     <div class="memdump-subtabs">
                         <button class="memdump-subtab active" data-subtab="dump" onclick="memdumpSwitchSub('dump', this)">📥 ダンプ</button>
-                        <button class="memdump-subtab" data-subtab="strings" onclick="memdumpSwitchSub('strings', this)">🔤 文字列</button>
-                        <button class="memdump-subtab" data-subtab="dlls" onclick="memdumpSwitchSub('dlls', this)">📚 DLL</button>
-                        <button class="memdump-subtab" data-subtab="memmap" onclick="memdumpSwitchSub('memmap', this)">🗺️ メモリマップ</button>
-                        <button class="memdump-subtab" data-subtab="pe" onclick="memdumpSwitchSub('pe', this)">🔍 PE検出</button>
-                        <button class="memdump-subtab" data-subtab="hex" onclick="memdumpSwitchSub('hex', this)">🔢 Hex</button>
+                        <button class="memdump-subtab" data-subtab="selective" onclick="memdumpSwitchSub('selective', this)">🎯 アドレス単位抽出</button>
+                        <button class="memdump-subtab" data-subtab="fullmem" onclick="memdumpSwitchSub('fullmem', this)">💾 全メモリ</button>
+                        <button class="memdump-subtab" data-subtab="dumpanalyze" onclick="memdumpSwitchSub('dumpanalyze', this)">📂 ダンプ解析</button>
                     </div>
 
                     <!-- サブタブ: ダンプ -->
@@ -936,10 +942,7 @@
                             <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('dump')">🔲 全画面で開く</button>
                         </div>
                         <div style="padding:10px;">
-                            <div style="margin-bottom:10px;">
-                                <label class="cell-sub">出力先フォルダ:</label>
-                                <input type="text" id="memdump-output-dir" class="search-input" style="width:400px;" placeholder="空欄 = dumps/ フォルダ">
-                            </div>
+                            <p class="cell-sub" style="margin:0 0 10px 0;">選択中のプロセスの全メモリ領域をダンプファイルとして保存します。</p>
                             <button class="load-btn" onclick="memdumpExecDump()" style="background:var(--accent-error);color:#fff;">⚡ ダンプ実行</button>
                             <span id="memdump-dump-status" class="cell-sub" style="margin-left:10px;"></span>
                             <div id="memdump-dump-progress" style="margin-top:10px; display:none;">
@@ -951,112 +954,114 @@
                         </div>
                     </div>
 
+                    <!-- サブタブ: プロセス個別抽出 -->
+                    <div class="memdump-sub-content" id="memdump-sub-selective">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">🎯 アドレス単位メモリ抽出</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('selective')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px;">
+                            <p class="cell-sub" style="margin:0 0 10px 0;">選択中プロセスのメモリ領域をアドレス単位で個別ファイルとして抽出します。フォレンジック解析用です。</p>
+                            <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px; padding:10px; background:var(--bg-tertiary); border-radius:6px;">
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="checkbox" id="memdump-sel-heap" checked> ヒープ領域
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="checkbox" id="memdump-sel-stack" checked> スタック領域
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="checkbox" id="memdump-sel-exec" checked> 実行可能領域
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="checkbox" id="memdump-sel-mapped"> マップ済みファイル
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="checkbox" id="memdump-sel-all"> 全領域（フィルタなし）
+                                </label>
+                            </div>
+                            <button class="load-btn" onclick="memdumpExecSelective()" style="background:var(--accent-warning);color:#fff;">⚡ 個別抽出実行</button>
+                            <span id="memdump-sel-status" class="cell-sub" style="margin-left:10px;"></span>
+                            <div id="memdump-sel-progress" style="margin-top:10px; display:none;">
+                                <div style="background:var(--bg-tertiary); border-radius:4px; height:6px; overflow:hidden;">
+                                    <div id="memdump-sel-bar" style="width:0%; height:100%; background:var(--accent-warning); transition:width 0.3s;"></div>
+                                </div>
+                            </div>
+                            <div id="memdump-sel-result" style="margin-top:10px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- サブタブ: 全メモリダンプ -->
+                    <div class="memdump-sub-content" id="memdump-sub-fullmem">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">💾 全メモリダンプ（物理メモリ）</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('fullmem')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px;">
+                            <p class="cell-sub" style="margin:0 0 10px 0;">端末の全プロセスメモリをダンプします。完了まで数分〜数十分かかる場合があります。</p>
+                            <div id="memdump-sysinfo" style="margin-bottom:12px; padding:10px; background:var(--bg-tertiary); border-radius:6px;">
+                                <div style="display:grid; grid-template-columns:180px 1fr; gap:4px 12px; font-size:0.9em;">
+                                    <span style="font-weight:bold;">物理メモリ総量:</span><span id="memdump-sys-total">--</span>
+                                    <span style="font-weight:bold;">使用中:</span><span id="memdump-sys-used">--</span>
+                                    <span style="font-weight:bold;">空き:</span><span id="memdump-sys-avail">--</span>
+                                    <span style="font-weight:bold;">推定ダンプサイズ:</span><span id="memdump-sys-estsize">--</span>
+                                    <span style="font-weight:bold;">出力先空き容量:</span><span id="memdump-sys-diskfree">--</span>
+                                </div>
+                                <button class="filter-btn" style="margin-top:8px;" onclick="memdumpLoadSysInfo()">🔄 情報更新</button>
+                                <span id="memdump-sys-warn" style="color:var(--accent-error); margin-left:10px;"></span>
+                            </div>
+                            <button class="load-btn" onclick="memdumpExecFullDump()" style="background:var(--accent-error);color:#fff;">⚡ 全メモリダンプ実行</button>
+                            <span id="memdump-full-status" class="cell-sub" style="margin-left:10px;"></span>
+                            <div id="memdump-full-progress" style="margin-top:10px; display:none;">
+                                <div style="background:var(--bg-tertiary); border-radius:4px; height:6px; overflow:hidden;">
+                                    <div id="memdump-full-bar" style="width:0%; height:100%; background:var(--accent-error); transition:width 0.3s;"></div>
+                                </div>
+                            </div>
+                            <div id="memdump-full-result" style="margin-top:10px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- サブタブ: ダンプ解析 -->
+                    <div class="memdump-sub-content" id="memdump-sub-dumpanalyze">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">📂 ダンプファイル解析</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('dumpanalyze')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px;">
+                            <p class="cell-sub" style="margin:0 0 10px 0;">ダンプファイルを選択すると自動で全解析（文字列・PE検出・Hex・YARA・IOC）を一括実行します。</p>
+
+                            <!-- ファイル選択 -->
+                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+                                <span style="font-weight:bold; white-space:nowrap;">対象ファイル:</span>
+                                <select id="memdump-da-filelist" class="search-input" style="flex:1; min-width:300px;" onchange="memdumpDaAutoAnalyze()">
+                                    <option value="">-- ファイルを選択 --</option>
+                                </select>
+                                <button class="filter-btn" onclick="memdumpDaRefreshFiles()">🔄 一覧更新</button>
+                                <button class="filter-btn" onclick="memdumpDaExportCSV()">📁 CSV出力</button>
+                            </div>
+
+                            <!-- 解析進捗 -->
+                            <div id="memdump-da-progress" style="display:none; margin-bottom:12px;">
+                                <div style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">
+                                    <span id="memdump-da-progress-label" style="font-weight:bold; color:var(--accent-info);">解析中...</span>
+                                    <span id="memdump-da-progress-pct" class="cell-sub">0%</span>
+                                </div>
+                                <div style="background:var(--bg-tertiary); border-radius:4px; height:6px; overflow:hidden;">
+                                    <div id="memdump-da-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--accent-info), var(--accent-success)); transition:width 0.3s;"></div>
+                                </div>
+                            </div>
+
+                            <span id="memdump-da-status" class="cell-sub"></span>
+
+                            <!-- 結果: 全セクション表示 -->
+                            <div id="memdump-da-result" style="margin-top:12px;"></div>
+                        </div>
+                    </div>
+
+
                     <!-- サブタブ: 文字列抽出 -->
-                    <div class="memdump-sub-content" id="memdump-sub-strings">
-                        <div class="memdump-fullscreen-bar">
-                            <span class="guide-title">🔤 文字列抽出</span>
-                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('strings')">🔲 全画面で開く</button>
-                        </div>
-                        <div style="padding:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <label class="cell-sub">最小文字数:</label>
-                            <input type="number" id="memdump-str-minlen" value="4" min="2" max="50" style="width:60px;" class="search-input">
-                            <label class="cell-sub">最大件数:</label>
-                            <input type="number" id="memdump-str-maxresults" value="5000" min="100" max="50000" style="width:80px;" class="search-input">
-                            <button class="load-btn" onclick="memdumpExecStrings()">🔤 抽出実行</button>
-                            <input type="text" id="memdump-str-filter" class="search-input" placeholder="結果フィルタ..." onkeyup="memdumpFilterStrings()" style="max-width:200px;">
-                            <button class="filter-btn" onclick="memdumpExportStringsCSV()">📁 CSV出力</button>
-                            <span id="memdump-str-status" class="cell-sub"></span>
-                        </div>
-                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
-                            <table>
-                                <thead><tr><th style="width:140px;">オフセット</th><th style="width:80px;">種別</th><th>文字列</th></tr></thead>
-                                <tbody id="memdump-str-list"></tbody>
-                            </table>
-                        </div>
-                    </div>
 
-                    <!-- サブタブ: DLL -->
-                    <div class="memdump-sub-content" id="memdump-sub-dlls">
-                        <div class="memdump-fullscreen-bar">
-                            <span class="guide-title">📚 ロード済みDLL一覧</span>
-                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('dlls')">🔲 全画面で開く</button>
-                        </div>
-                        <div style="padding:10px;">
-                            <button class="load-btn" onclick="memdumpExecDlls()">📚 DLL取得</button>
-                            <span id="memdump-dll-status" class="cell-sub" style="margin-left:10px;"></span>
-                        </div>
-                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
-                            <table>
-                                <thead><tr><th>名前</th><th>パス</th><th style="width:100px;">ベース</th><th style="width:80px;">サイズ</th><th style="width:60px;">判定</th></tr></thead>
-                                <tbody id="memdump-dll-list"></tbody>
-                            </table>
-                        </div>
-                    </div>
 
-                    <!-- サブタブ: メモリマップ -->
-                    <div class="memdump-sub-content" id="memdump-sub-memmap">
-                        <div class="memdump-fullscreen-bar">
-                            <span class="guide-title">🗺️ メモリ領域マップ</span>
-                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('memmap')">🔲 全画面で開く</button>
-                        </div>
-                        <div style="padding:10px; display:flex; gap:8px; align-items:center;">
-                            <button class="load-btn" onclick="memdumpExecMemmap()">🗺️ マップ取得</button>
-                            <button class="filter-btn" id="memdump-mm-rwx-btn" onclick="memdumpToggleRwxFilter()">🔴 RWXのみ (OFF)</button>
-                            <button class="filter-btn" id="memdump-mm-exec-btn" onclick="memdumpToggleExecFilter()">🟡 実行可能のみ (OFF)</button>
-                            <span id="memdump-mm-status" class="cell-sub" style="margin-left:10px;"></span>
-                        </div>
-                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
-                            <table>
-                                <thead><tr><th>ベースアドレス</th><th style="width:100px;">サイズ</th><th style="width:80px;">権限</th><th style="width:80px;">種別</th><th style="width:60px;">RWX</th></tr></thead>
-                                <tbody id="memdump-mm-list"></tbody>
-                            </table>
-                        </div>
-                    </div>
 
-                    <!-- サブタブ: PE検出 -->
-                    <div class="memdump-sub-content" id="memdump-sub-pe">
-                        <div class="memdump-fullscreen-bar">
-                            <span class="guide-title">🔍 PEヘッダー検出</span>
-                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('pe')">🔲 全画面で開く</button>
-                        </div>
-                        <div style="padding:10px;">
-                            <button class="load-btn" onclick="memdumpExecPeScan()">🔍 PEスキャン</button>
-                            <span id="memdump-pe-status" class="cell-sub" style="margin-left:10px;"></span>
-                        </div>
-                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
-                            <table>
-                                <thead><tr><th>アドレス</th><th>領域ベース</th><th style="width:80px;">権限</th><th style="width:100px;">推定サイズ</th><th style="width:120px;">操作</th></tr></thead>
-                                <tbody id="memdump-pe-list"></tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- サブタブ: Hexビューア -->
-                    <div class="memdump-sub-content" id="memdump-sub-hex">
-                        <div class="memdump-fullscreen-bar">
-                            <span class="guide-title">🔢 Hexビューア</span>
-                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('hex')">🔲 全画面で開く</button>
-                        </div>
-                        <div style="padding:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <label class="cell-sub">アドレス:</label>
-                            <input type="text" id="memdump-hex-addr" class="search-input" placeholder="0x00000000" style="width:180px;">
-                            <label class="cell-sub">サイズ:</label>
-                            <select id="memdump-hex-size" class="search-input" style="width:100px;">
-                                <option value="256">256 B</option>
-                                <option value="512">512 B</option>
-                                <option value="1024" selected>1 KB</option>
-                                <option value="2048">2 KB</option>
-                                <option value="4096">4 KB</option>
-                            </select>
-                            <button class="load-btn" onclick="memdumpExecHex()">🔢 表示</button>
-                            <button class="filter-btn" onclick="memdumpHexPrev()">◀ 前</button>
-                            <button class="filter-btn" onclick="memdumpHexNext()">▶ 次</button>
-                            <span id="memdump-hex-status" class="cell-sub"></span>
-                        </div>
-                        <div id="memdump-hex-view" class="memdump-hex-container"></div>
-                    </div>
-                </div>
-            </div>
             <!-- P27: ファイル検査タブ -->
             <div id="tab-fileinspect" aria-label="ファイル検査" class="card">
                 <div class="guide-box">
@@ -1276,6 +1281,12 @@ function switchTab(id, el) {
     }
     if (id === 'important') {
         renderImportantTab();
+    }
+    if (id === 'memdump') {
+        memdumpLoadOutputDir();
+    }
+    if (id === 'fileinspect') {
+        if (typeof yaraLoadStatus === 'function') yaraLoadStatus();
     }
 }
 
@@ -3323,6 +3334,455 @@ var _memdumpStrings = [];
 var _memdumpMmRwxFilter = false;
 var _memdumpMmExecFilter = false;
 var _memdumpHexAddr = null;
+    var _memdumpDaLastResult = null;
+
+    // --- 共通出力先フォルダ ---
+    function memdumpLoadOutputDir() {
+        fetch('/api/memdump/outputdir').then(function(r) { return r.json(); }).then(function(res) {
+            if (res.status === 'ok') {
+                document.getElementById('memdump-common-output-dir').value = res.output_dir;
+            }
+        });
+    }
+
+    function memdumpBrowseOutputDir() {
+        fetch('/api/memdump/outputdir/browse').then(function(r) { return r.json(); }).then(function(res) {
+            if (res.status === 'ok') {
+                document.getElementById('memdump-common-output-dir').value = res.path;
+                document.getElementById('memdump-outputdir-status').textContent = '変更しました';
+                setTimeout(function() { document.getElementById('memdump-outputdir-status').textContent = ''; }, 3000);
+            }
+        });
+    }
+
+    // --- プロセス個別抽出 ---
+    function memdumpExecSelective() {
+        if (!_memdumpCheckPid()) return;
+        var statusEl = document.getElementById('memdump-sel-status');
+        var resultEl = document.getElementById('memdump-sel-result');
+        var progressEl = document.getElementById('memdump-sel-progress');
+        var barEl = document.getElementById('memdump-sel-bar');
+        var outputDir = document.getElementById('memdump-common-output-dir').value || '';
+
+        var includeAll = document.getElementById('memdump-sel-all').checked;
+        var body = {
+            pid: _memdumpSelectedPid,
+            output_dir: outputDir || null,
+            include_heap: includeAll || document.getElementById('memdump-sel-heap').checked,
+            include_stack: includeAll || document.getElementById('memdump-sel-stack').checked,
+            include_executable: includeAll || document.getElementById('memdump-sel-exec').checked,
+            include_mapped: includeAll || document.getElementById('memdump-sel-mapped').checked,
+            include_all: includeAll
+        };
+
+        statusEl.textContent = '抽出中... (PID: ' + _memdumpSelectedPid + ')';
+        resultEl.innerHTML = '';
+        progressEl.style.display = 'block';
+        barEl.style.width = '30%';
+
+        fetch('/api/memdump/dump/selective', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            barEl.style.width = '100%';
+            if (res.status === 'error' || res.error) {
+                statusEl.textContent = 'エラー';
+                resultEl.innerHTML = '<div style="color:var(--accent-error);">' + (res.message || res.error || 'unknown error') + '</div>';
+            } else if (res.status === 'ok') {
+
+                statusEl.textContent = '完了 - ' + (res.region_count || 0) + ' 領域 (' + (res.total_size || '0 B') + ')';
+                var html = '<div class="data-table-wrapper" style="max-height:40vh; overflow-y:auto;"><table>';
+                html += '<thead><tr><th>領域タイプ</th><th>アドレス</th><th>サイズ</th><th>保護属性</th><th>保存ファイル</th></tr></thead><tbody>';
+                var catNames = {heap:'ヒープ', stack:'スタック', executable:'実行可能', mapped:'マップ済み', other:'その他'};
+                (res.regions || []).forEach(function(r) {
+                    var catCls = r.category === 'executable' ? 'style="color:var(--accent-error);font-weight:bold;"' : '';
+                    html += '<tr><td ' + catCls + '>' + (catNames[r.category] || r.category) + '</td>';
+                    html += '<td style="font-family:monospace;">' + r.address + '</td>';
+                    html += '<td>' + r.size + '</td>';
+                    html += '<td>' + r.protection + '</td>';
+                    html += '<td style="font-size:0.85em;">' + r.filename + '</td></tr>';
+                });
+                html += '</tbody></table></div>';
+                resultEl.innerHTML = html;
+            } else {
+                statusEl.textContent = 'エラー';
+                resultEl.innerHTML = '<div style="color:var(--accent-error);">' + (res.message || res.error || 'unknown error') + '</div>';
+            }
+        }).catch(function(e) {
+            barEl.style.width = '100%';
+            statusEl.textContent = 'エラー';
+            resultEl.innerHTML = '<div style="color:var(--accent-error);">' + e + '</div>';
+        });
+    }
+
+    // --- 全メモリダンプ ---
+    function memdumpLoadSysInfo() {
+        fetch('/api/memdump/sysinfo').then(function(r) { return r.json(); }).then(function(res) {
+            if (res.status === 'ok') {
+                document.getElementById('memdump-sys-total').textContent = res.total || '--';
+                document.getElementById('memdump-sys-used').textContent = (res.used || '--') + ' (' + (res.used_percent || 0) + '%)';
+                document.getElementById('memdump-sys-avail').textContent = (res.available || '--') + ' (' + (res.available_percent || 0) + '%)';
+                document.getElementById('memdump-sys-estsize').textContent = '~' + (res.estimated_dump_size || '--');
+                document.getElementById('memdump-sys-diskfree').textContent = res.output_dir_free || '--';
+                var warnEl = document.getElementById('memdump-sys-warn');
+                if (res.can_dump === false) {
+                    warnEl.textContent = '⚠ ディスク空き容量が不足しています！';
+                } else {
+                    warnEl.textContent = '';
+                }
+            }
+        });
+    }
+
+    function memdumpExecFullDump() {
+        if (!confirm('全プロセスのメモリダンプを実行します。\n数分～数十分かかる場合があります。\n続行しますか？')) return;
+        var statusEl = document.getElementById('memdump-full-status');
+        var resultEl = document.getElementById('memdump-full-result');
+        var progressEl = document.getElementById('memdump-full-progress');
+        var barEl = document.getElementById('memdump-full-bar');
+        var outputDir = document.getElementById('memdump-common-output-dir').value || '';
+
+        statusEl.textContent = '全メモリダンプ中...（時間がかかります）';
+        resultEl.innerHTML = '';
+        progressEl.style.display = 'block';
+        barEl.style.width = '10%';
+
+        fetch('/api/memdump/dump/full', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({output_dir: outputDir || null})
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            barEl.style.width = '100%';
+            if (res.status === 'ok') {
+                statusEl.textContent = '完了 - ' + res.success_count + '/' + res.process_count + ' プロセス (' + res.total_size + ')';
+                var html = '<div style="padding:8px;background:var(--bg-tertiary);border-radius:4px;margin-bottom:8px;">';
+                html += '<b>出力先:</b> ' + res.output_dir + '<br>';
+                html += '<b>成功:</b> ' + res.success_count + ' / <b>失敗:</b> ' + res.failed_count + ' / <b>スキップ:</b> ' + res.skipped_count;
+                html += '</div>';
+                html += '<div class="data-table-wrapper" style="max-height:40vh; overflow-y:auto;"><table>';
+                html += '<thead><tr><th>PID</th><th>プロセス名</th><th>状態</th><th>サイズ/エラー</th></tr></thead><tbody>';
+                (res.results || []).forEach(function(r) {
+                    var cls = r.status === 'OK' ? '' : 'style="color:var(--accent-error);"';
+                    html += '<tr ' + cls + '><td>' + r.pid + '</td><td>' + r.name + '</td>';
+                    html += '<td>' + r.status + '</td>';
+                    html += '<td>' + (r.size || r.error || '') + '</td></tr>';
+                });
+                html += '</tbody></table></div>';
+                resultEl.innerHTML = html;
+            } else {
+                statusEl.textContent = 'エラー';
+                resultEl.innerHTML = '<div style="color:var(--accent-error);">' + (res.message || 'unknown error') + '</div>';
+            }
+        }).catch(function(e) {
+            barEl.style.width = '100%';
+            statusEl.textContent = 'エラー';
+            resultEl.innerHTML = '<div style="color:var(--accent-error);">' + e + '</div>';
+        });
+    }
+
+    function memdumpDaRefreshFiles() {
+        var dir = document.getElementById('memdump-common-output-dir').value || '';
+        fetch('/api/memdump/dumpfiles' + (dir ? '?dir=' + encodeURIComponent(dir) : '')).then(function(r) { return r.json(); }).then(function(res) {
+            var sel = document.getElementById('memdump-da-filelist');
+            sel.innerHTML = '<option value="">-- ファイルを選択 --</option>';
+            (res.files || []).forEach(function(f) {
+                var opt = document.createElement('option');
+                opt.value = f.filepath;
+                opt.textContent = f.filename + ' (' + f.size + ', ' + f.mtime + ')' + (f.is_dir ? ' [' + f.file_count + 'files]' : '');
+                sel.appendChild(opt);
+            });
+            document.getElementById('memdump-da-status').textContent = (res.files || []).length + ' ファイル検出';
+        });
+    }
+
+    var _memdumpDaAllResults = {};
+
+    function memdumpDaAutoAnalyze() {
+        var filepath = document.getElementById('memdump-da-filelist').value;
+        if (!filepath) return;
+        var statusEl = document.getElementById('memdump-da-status');
+        var resultEl = document.getElementById('memdump-da-result');
+        var progressEl = document.getElementById('memdump-da-progress');
+        var barEl = document.getElementById('memdump-da-progress-bar');
+        var labelEl = document.getElementById('memdump-da-progress-label');
+        var pctEl = document.getElementById('memdump-da-progress-pct');
+
+        _memdumpDaAllResults = {};
+        resultEl.innerHTML = '';
+        progressEl.style.display = 'block';
+        barEl.style.width = '0%';
+        statusEl.textContent = '全解析実行中...';
+
+        var types = [
+            {type: 'strings', label: '🔤 文字列抽出', params: {min_len: 4, max_results: 5000}},
+            {type: 'pe', label: '🔍 PE検出', params: {}},
+            {type: 'hex', label: '🔢 Hexプレビュー', params: {hex_offset: 0, hex_size: 1024}},
+            {type: 'yara', label: '🛡️ YARAスキャン', params: {}},
+            {type: 'ioc', label: '🔎 IOC抽出', params: {max_results: 5000}}
+        ];
+        var done = 0;
+        var total = types.length;
+
+        function runNext() {
+            if (done >= total) {
+                progressEl.style.display = 'none';
+                statusEl.textContent = '全解析完了';
+                memdumpDaRenderAll(resultEl);
+                return;
+            }
+            var t = types[done];
+            labelEl.textContent = t.label + '...';
+            var pct = Math.round((done / total) * 100);
+            barEl.style.width = pct + '%';
+            pctEl.textContent = pct + '%';
+
+            var body = {filepath: filepath, type: t.type};
+            for (var k in t.params) { body[k] = t.params[k]; }
+
+            fetch('/api/memdump/analyze', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(body)
+            }).then(function(r) { return r.json(); }).then(function(res) {
+                _memdumpDaAllResults[t.type] = res;
+                done++;
+                var pct2 = Math.round((done / total) * 100);
+                barEl.style.width = pct2 + '%';
+                pctEl.textContent = pct2 + '%';
+                runNext();
+            }).catch(function(e) {
+                _memdumpDaAllResults[t.type] = {error: String(e)};
+                done++;
+                runNext();
+            });
+        }
+        runNext();
+    }
+
+        function memdumpDaRenderAll(el) {
+        var html = '';
+
+        // タブボタン
+        html += '<div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:12px; border-bottom:2px solid var(--border-primary); padding-bottom:4px;">';
+        html += '<button class="memdump-subtab active" onclick="memdumpDaShowTab(\'strings\', this)">🔤 文字列</button>';
+        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'pe\', this)">🔍 PE検出</button>';
+        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'hex\', this)">🔢 Hex</button>';
+        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'yara\', this)">🛡️ YARA</button>';
+        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'ioc\', this)">🔎 IOC</button>';
+        html += '</div>';
+
+        var r;
+
+        // === 文字列 ===
+        r = _memdumpDaAllResults['strings'];
+        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-strings">';
+        html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔤 文字列抽出</h3>';
+        if (r && r.strings && r.strings.length > 0) {
+            html += '<p class="cell-sub">' + r.strings.length + ' 件抽出' + (r.total_found > r.strings.length ? ' (上限到達, 全' + r.total_found + '件)' : '') + '</p>';
+            html += '<div style="margin-bottom:6px;"><input type="text" id="memdump-da-str-filter" class="search-input" placeholder="文字列フィルタ..." onkeyup="memdumpDaFilterStrings()" style="max-width:300px;"></div>';
+            html += '<div class="data-table-wrapper" style="max-height:60vh; overflow-y:auto;"><table>';
+            html += '<thead><tr><th style="width:120px;">オフセット</th><th style="width:80px;">種別</th><th>文字列</th></tr></thead><tbody id="memdump-da-str-tbody">';
+            var maxShow = Math.min(r.strings.length, 2000);
+            for (var i = 0; i < maxShow; i++) {
+                var s = r.strings[i];
+                html += '<tr><td style="font-family:monospace;">' + s.offset + '</td><td>' + s.type + '</td><td style="font-family:monospace;font-size:0.85em;word-break:break-all;">' + (s.value || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td></tr>';
+            }
+            if (r.strings.length > 2000) html += '<tr><td colspan="3" class="cell-sub">... 他 ' + (r.strings.length - 2000) + ' 件（フィルタで絞り込んでください）</td></tr>';
+            html += '</tbody></table></div>';
+        } else {
+            html += '<p class="cell-sub" style="color:var(--text-secondary);">文字列なし' + (r && r.error ? ' (' + r.error + ')' : '') + '</p>';
+        }
+        html += '</div>';
+
+        // === PE検出 ===
+        r = _memdumpDaAllResults['pe'];
+        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-pe" style="display:none;">';
+        html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔍 PE検出</h3>';
+        if (r && r.pe_headers && r.pe_headers.length > 0) {
+            html += '<p class="cell-sub">' + r.pe_headers.length + ' 個のPEヘッダー検出</p>';
+            html += '<div class="data-table-wrapper"><table>';
+            html += '<thead><tr><th>オフセット</th><th>PEオフセット</th><th>推定サイズ</th></tr></thead><tbody>';
+            r.pe_headers.forEach(function(p) {
+                html += '<tr><td style="font-family:monospace;">' + p.offset + '</td><td>' + p.pe_offset + '</td><td>' + p.estimated_size + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        } else {
+            html += '<p class="cell-sub" style="color:var(--accent-success);">✅ PEヘッダーなし</p>';
+        }
+        html += '</div>';
+
+        // === Hex ===
+        r = _memdumpDaAllResults['hex'];
+        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-hex" style="display:none;">';
+        html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔢 Hexビューア</h3>';
+        html += '<div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">';
+        html += '<label class="cell-sub">オフセット:</label>';
+        html += '<input type="text" id="memdump-da-hex-nav-offset" class="search-input" placeholder="0" style="width:120px;" value="0">';
+        html += '<label class="cell-sub">サイズ:</label>';
+        html += '<select id="memdump-da-hex-nav-size" class="search-input" style="width:100px;"><option value="256">256 B</option><option value="512">512 B</option><option value="1024" selected>1 KB</option><option value="4096">4 KB</option></select>';
+        html += '<button class="filter-btn" onclick="memdumpDaHexNav(\'go\')">表示</button>';
+        html += '<button class="filter-btn" onclick="memdumpDaHexNav(\'prev\')">◀ 前</button>';
+        html += '<button class="filter-btn" onclick="memdumpDaHexNav(\'next\')">▶ 次</button>';
+        html += '</div>';
+        html += '<div id="memdump-da-hex-view">';
+        if (r && r.hex_lines && r.hex_lines.length > 0) {
+            html += memdumpDaBuildHexHtml(r.hex_lines);
+        } else {
+            html += '<p class="cell-sub" style="color:var(--text-secondary);">データなし</p>';
+        }
+        html += '</div></div>';
+
+        // === YARA ===
+        r = _memdumpDaAllResults['yara'];
+        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-yara" style="display:none;">';
+        html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🛡️ YARAスキャン</h3>';
+        if (r && r.yara_error) {
+            html += '<p class="cell-sub" style="color:var(--accent-warning);">⚠ ' + r.yara_error + '</p>';
+        } else if (r && r.yara_matches && r.yara_matches.length > 0) {
+            html += '<p class="cell-sub" style="color:var(--accent-error);font-weight:bold;">' + r.yara_matches.length + ' ルールマッチ</p>';
+            r.yara_matches.forEach(function(m) {
+                html += '<div style="margin:6px 0; padding:10px; background:var(--bg-tertiary); border-left:4px solid var(--accent-error); border-radius:4px;">';
+                html += '<span style="color:var(--accent-error);font-weight:bold;font-size:1.05em;">🛡️ ' + (m.rule || '') + '</span>';
+                if (m.namespace) html += ' <span class="cell-sub">(' + m.namespace + ')</span>';
+                if (m.tags && m.tags.length) { m.tags.forEach(function(t) { html += ' <span style="background:var(--accent-warning);color:#000;padding:1px 6px;border-radius:3px;font-size:0.8em;">' + t + '</span>'; }); }
+                if (m.meta) {
+                    if (m.meta.description) html += '<div style="margin-top:4px;">' + m.meta.description + '</div>';
+                    html += '<table style="margin-top:6px;font-size:0.9em;"><tbody>';
+                    for (var k in m.meta) { html += '<tr><td style="font-weight:bold;padding-right:10px;">' + k + '</td><td>' + m.meta[k] + '</td></tr>'; }
+                    html += '</tbody></table>';
+                }
+                if (m.strings && m.strings.length > 0) {
+                    html += '<div style="margin-top:6px;font-size:0.85em;"><b>マッチ文字列:</b><br>';
+                    m.strings.slice(0, 20).forEach(function(s) { html += '<span style="font-family:monospace;">' + (s.identifier || '') + ' @ 0x' + (s.offset || 0).toString(16).toUpperCase() + '</span><br>'; });
+                    if (m.strings.length > 20) html += '<span class="cell-sub">... 他 ' + (m.strings.length - 20) + ' 件</span>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            });
+        } else {
+            html += '<p class="cell-sub" style="color:var(--accent-success);">✅ YARAマッチなし</p>';
+        }
+        html += '</div>';
+
+        // === IOC ===
+        r = _memdumpDaAllResults['ioc'];
+        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-ioc" style="display:none;">';
+        html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔎 IOC抽出</h3>';
+        if (r && r.iocs && r.iocs.length > 0) {
+            var catIcons = {URL:'🌐', IPv4:'📡', Email:'📧', Registry:'🔑', Domain:'🌍'};
+            var summary = r.ioc_summary || {};
+            html += '<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:8px;">';
+            for (var cat in summary) {
+                if (summary[cat] > 0) {
+                    html += '<div style="padding:6px 12px; background:var(--bg-tertiary); border-radius:6px; text-align:center;">';
+                    html += '<div style="font-size:1.2em;">' + (catIcons[cat] || '📋') + '</div>';
+                    html += '<div style="font-weight:bold;">' + summary[cat] + '</div>';
+                    html += '<div class="cell-sub" style="font-size:0.8em;">' + cat + '</div></div>';
+                }
+            }
+            html += '</div>';
+            html += '<div class="data-table-wrapper" style="max-height:60vh; overflow-y:auto;"><table>';
+            html += '<thead><tr><th style="width:80px;">種別</th><th>値</th><th style="width:60px;">件数</th></tr></thead><tbody>';
+            r.iocs.forEach(function(ioc) {
+                var escaped = (ioc.value || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                if (ioc.category === 'URL' || ioc.category === 'Domain') {
+                    escaped = escaped.replace(/https:/gi, 'hXXps:').replace(/http:/gi, 'hXXp:').replace(/\./g, '[.]');
+                }
+                html += '<tr><td>' + (catIcons[ioc.category] || '') + ' ' + ioc.category + '</td>';
+                html += '<td style="font-family:monospace;font-size:0.85em;word-break:break-all;">' + escaped + '</td>';
+                html += '<td style="text-align:center;font-weight:bold;">' + ioc.count + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        } else {
+            html += '<p class="cell-sub" style="color:var(--accent-success);">✅ IOC検出なし</p>';
+        }
+        html += '</div>';
+
+        el.innerHTML = html;
+    }
+
+    // タブ切替
+    function memdumpDaShowTab(tab, btn) {
+        document.querySelectorAll('.memdump-da-tab-content').forEach(function(c) { c.style.display = 'none'; });
+        var target = document.getElementById('memdump-da-tab-' + tab);
+        if (target) target.style.display = 'block';
+        if (btn) {
+            btn.parentElement.querySelectorAll('.memdump-subtab').forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+        }
+    }
+
+    // Hex ナビゲーション
+    function memdumpDaBuildHexHtml(lines) {
+        var h = '<div class="memdump-hex-table" style="max-height:60vh; overflow-y:auto;">';
+        h += '<div class="memdump-hex-header"><span class="memdump-hex-addr-col">Address</span><span class="memdump-hex-hex-col">Hex</span><span>ASCII</span></div>';
+        lines.forEach(function(l) {
+            h += '<div class="memdump-hex-line"><span class="memdump-hex-addr-col">' + l.address + '</span><span class="memdump-hex-hex-col">' + l.hex + '</span><span class="memdump-hex-ascii-col">' + (l.ascii || '').replace(/</g, '&lt;') + '</span></div>';
+        });
+        h += '</div>';
+        return h;
+    }
+
+    function memdumpDaHexNav(action) {
+        var filepath = document.getElementById('memdump-da-filelist').value;
+        if (!filepath) return;
+        var offsetEl = document.getElementById('memdump-da-hex-nav-offset');
+        var sizeEl = document.getElementById('memdump-da-hex-nav-size');
+        var offset = parseInt(offsetEl.value) || 0;
+        var size = parseInt(sizeEl.value) || 1024;
+        if (action === 'prev') { offset = Math.max(0, offset - size); offsetEl.value = offset; }
+        else if (action === 'next') { offset = offset + size; offsetEl.value = offset; }
+        fetch('/api/memdump/analyze', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({filepath: filepath, type: 'hex', hex_offset: offset, hex_size: size})
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            var viewEl = document.getElementById('memdump-da-hex-view');
+            if (res.hex_lines && res.hex_lines.length > 0) {
+                viewEl.innerHTML = memdumpDaBuildHexHtml(res.hex_lines);
+            } else {
+                viewEl.innerHTML = '<p class="cell-sub">データなし（ファイル末尾を超えています）</p>';
+            }
+        });
+    }
+
+    // 文字列フィルタ
+    function memdumpDaFilterStrings() {
+        var keyword = (document.getElementById('memdump-da-str-filter').value || '').toLowerCase();
+        var tbody = document.getElementById('memdump-da-str-tbody');
+        if (!tbody) return;
+        var rows = tbody.querySelectorAll('tr');
+        rows.forEach(function(row) {
+            if (!keyword) { row.style.display = ''; return; }
+            var text = row.textContent.toLowerCase();
+            row.style.display = text.includes(keyword) ? '' : 'none';
+        });
+    }
+
+
+    function memdumpDaExportCSV() {
+        if (!_memdumpDaAllResults || Object.keys(_memdumpDaAllResults).length === 0) { alert('先にファイルを選択してください'); return; }
+        var csv = '';
+        var r = _memdumpDaAllResults['strings'];
+        if (r && r.strings && r.strings.length > 0) {
+            csv += '=== STRINGS ===\noffset,type,value\n';
+            r.strings.forEach(function(s) { csv += s.offset + ',' + s.type + ',"' + (s.value || '').replace(/"/g, '""') + '"\n'; });
+        }
+        r = _memdumpDaAllResults['pe'];
+        if (r && r.pe_headers && r.pe_headers.length > 0) {
+            csv += '\n=== PE HEADERS ===\noffset,pe_offset,estimated_size\n';
+            r.pe_headers.forEach(function(p) { csv += p.offset + ',' + p.pe_offset + ',' + p.estimated_size + '\n'; });
+        }
+        r = _memdumpDaAllResults['ioc'];
+        if (r && r.iocs && r.iocs.length > 0) {
+            csv += '\n=== IOC ===\ncategory,value,count\n';
+            r.iocs.forEach(function(i) { csv += i.category + ',"' + (i.value || '').replace(/"/g, '""') + '",' + i.count + '\n'; });
+        }
+        if (!csv) { alert('出力データがありません'); return; }
+        var bom = '\uFEFF';
+        var blob = new Blob([bom + csv], {type: 'text/csv;charset=utf-8;'});
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'dump_analysis_all_' + new Date().toISOString().replace(/[:.]/g,'-').slice(0,19) + '.csv';
+        a.click();
+    }
 
 // --- サブタブ切替 ---
 function memdumpSwitchSub(id, el) {
@@ -3390,7 +3850,7 @@ function memdumpExecDump() {
     var resultEl = document.getElementById('memdump-dump-result');
     var progressEl = document.getElementById('memdump-dump-progress');
     var barEl = document.getElementById('memdump-dump-bar');
-    var outputDir = document.getElementById('memdump-output-dir').value || '';
+    var outputDir = document.getElementById('memdump-common-output-dir').value || '';
     statusEl.textContent = 'ダンプ中... (PID: ' + _memdumpSelectedPid + ')';
     resultEl.innerHTML = '';
     progressEl.style.display = 'block';
@@ -3551,7 +4011,7 @@ function memdumpExportPe(address) {
     if (!_memdumpCheckPid()) return;
     fetch('/api/memdump/pe/export', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({pid: _memdumpSelectedPid, address: address})
+        body: JSON.stringify({pid: _memdumpSelectedPid, address: address, output_dir: document.getElementById('memdump-common-output-dir').value || null})
     }).then(function(r) { return r.json(); }).then(function(res) {
         if (res.success) {
             alert('PE保存完了\nファイル: ' + res.filename + '\nサイズ: ' + res.size_kb + ' KB\nパス: ' + res.filepath);
@@ -4569,16 +5029,7 @@ function yaraScanAll() {
     next();
 }
 
-// Auto-load YARA status when file inspect tab is shown
-(function() {
-    var origSwitch = window.switchTab;
-    if (origSwitch) {
-        window.switchTab = function(tab, el) {
-            origSwitch(tab, el);
-            if (tab === 'fileinspect') { yaraLoadStatus(); }
-        };
-    }
-})();
+
 
 function startScan() {
     if (!confirm('フルスキャンを実行しますか？\n管理者権限が必要です。数分かかる場合があります。')) return;

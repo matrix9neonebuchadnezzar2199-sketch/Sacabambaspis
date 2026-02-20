@@ -330,6 +330,120 @@ def memdump_hex():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+
+# ============================================
+# P26-ext: Memory Dump Extended API
+# ============================================
+
+@app.route('/api/memdump/outputdir', methods=['GET'])
+def memdump_get_outputdir():
+    return jsonify({"status": "ok", "output_dir": _memdumper.get_output_dir()})
+
+@app.route('/api/memdump/outputdir', methods=['POST'])
+def memdump_set_outputdir():
+    data = request.get_json()
+    new_dir = data.get('output_dir', '')
+    if not new_dir:
+        return jsonify({"status": "error", "message": "output_dir is required"})
+    try:
+        result = _memdumper.set_output_dir(new_dir)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/outputdir/browse')
+def memdump_browse_outputdir():
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    folder = filedialog.askdirectory(title="出力先フォルダを選択")
+    root.destroy()
+    if folder:
+        _memdumper.set_output_dir(folder)
+        return jsonify({"status": "ok", "path": folder})
+    return jsonify({"status": "cancelled"})
+
+@app.route('/api/memdump/sysinfo')
+def memdump_sysinfo():
+    try:
+        info = _memdumper.get_system_memory_info()
+        return jsonify({"status": "ok", **info})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/dump/all', methods=['POST'])
+def memdump_dump_all():
+    data = request.get_json() or {}
+    output_dir = data.get('output_dir') or None
+    try:
+        result = _memdumper.dump_all_processes(output_dir)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/dump/selective', methods=['POST'])
+def memdump_dump_selective():
+    data = request.get_json()
+    pid = data.get('pid')
+    if not pid:
+        return jsonify({"status": "error", "message": "pid is required"})
+    try:
+        result = _memdumper.dump_process_selective(
+            int(pid),
+            output_dir=data.get('output_dir') or None,
+            include_heap=data.get('include_heap', True),
+            include_stack=data.get('include_stack', True),
+            include_executable=data.get('include_executable', True),
+            include_mapped=data.get('include_mapped', False),
+            include_all=data.get('include_all', False)
+        )
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/dump/full', methods=['POST'])
+def memdump_dump_full():
+    data = request.get_json() or {}
+    output_dir = data.get('output_dir') or None
+    try:
+        result = _memdumper.dump_full_memory(output_dir)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/dumpfiles')
+def memdump_list_dumpfiles():
+    directory = request.args.get('dir', None)
+    try:
+        result = _memdumper.list_dump_files(directory)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/memdump/analyze', methods=['POST'])
+def memdump_analyze_dump():
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    if not filepath:
+        return jsonify({"status": "error", "message": "filepath is required"})
+    analysis_type = data.get('type', 'strings')
+    try:
+        result = _memdumper.analyze_dump_file(
+            filepath,
+            analysis_type=analysis_type,
+            min_len=int(data.get('min_len', 4)),
+            max_results=int(data.get('max_results', 5000)),
+            hex_offset=int(data.get('hex_offset', 0)),
+            hex_size=int(data.get('hex_size', 1024))
+        )
+        if result.get('error'):
+            return jsonify({"status": "error", "message": result['error']})
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 # ============================================
 # P27: File Inspector API
 # ============================================
