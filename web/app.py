@@ -434,6 +434,102 @@ def fileinspect_inspect():
 
 
 
+
+# P27-D: YARA Manager API
+from utils.yara_manager import YaraManager
+_yara_manager = YaraManager()
+
+@app.route('/api/yara/status')
+def yara_status():
+    try:
+        return jsonify({"status": "ok", **_yara_manager.get_status()})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/rules')
+def yara_rules():
+    try:
+        rules = _yara_manager.list_rules()
+        return jsonify({"status": "ok", "rules": rules})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/compile', methods=['POST'])
+def yara_compile():
+    try:
+        result = _yara_manager.compile_rules()
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/scan', methods=['POST'])
+def yara_scan():
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    if not filepath:
+        return jsonify({"status": "error", "message": "filepath is required"})
+    try:
+        result = _yara_manager.scan_file(filepath)
+        if result.get('error'):
+            return jsonify({"status": "error", "message": result['error'], "matches": result.get('matches', [])})
+        return jsonify({"status": "ok", "matches": result['matches']})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/import', methods=['POST'])
+def yara_import():
+    data = request.get_json()
+    source = data.get('source', '')
+    category = data.get('category', 'imported')
+    if not source:
+        return jsonify({"status": "error", "message": "source path is required"})
+    try:
+        result = _yara_manager.import_rules(source, category)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/download', methods=['POST'])
+def yara_download():
+    data = request.get_json()
+    url = data.get('url', '')
+    name = data.get('name', 'downloaded')
+    if not url:
+        return jsonify({"status": "error", "message": "url is required"})
+    try:
+        result = _yara_manager.download_ruleset(url, name)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/delete', methods=['POST'])
+def yara_delete():
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    if not filepath:
+        return jsonify({"status": "error", "message": "filepath is required"})
+    try:
+        result = _yara_manager.delete_rule(filepath)
+        return jsonify({"status": "ok" if result['success'] else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/browse')
+def yara_browse():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        path = filedialog.askdirectory(title='YARAルールフォルダを選択')
+        root.destroy()
+        if path:
+            return jsonify({"status": "ok", "folder": path})
+        return jsonify({"status": "cancelled"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 # --- メインロジック ---
 def save_report(data):
     if not os.path.exists(LOG_DIR):

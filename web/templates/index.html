@@ -1111,6 +1111,7 @@
                             <th style="width:70px;">エントロピー</th>
                             <th style="width:70px;">拡張子一致</th>
                             <th style="width:80px;">検査状態</th>
+                            <th style="width:60px;">YARA</th>
                             <th style="width:70px;">判定</th>
                             <th style="width:70px;">操作</th>
                         </tr></thead>
@@ -1121,6 +1122,57 @@
                 <!-- サマリーフッター -->
                 <div id="fi-result-summary" style="padding:6px 12px; border-top:1px solid var(--border-primary); display:none;">
                     <span id="fi-result-summary-text" class="cell-sub"></span>
+                </div>
+                <!-- P27-D: YARA スキャンセクション -->
+                <div style="border-top:2px solid var(--border-primary); margin-top:8px; padding-top:8px;">
+                    <div style="padding:8px 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-weight:bold; color:var(--accent-info);">🛡️ YARA スキャン</span>
+                        <span id="yara-status-badge" class="cell-sub"></span>
+                        <button class="filter-btn" onclick="yaraLoadStatus()" style="margin-left:auto;">🔄 状態更新</button>
+                        <button class="filter-btn" onclick="yaraCompile()">⚙️ ルールコンパイル</button>
+                        <button class="filter-btn" onclick="yaraScanAll()" style="border-color:var(--accent-warning);color:var(--accent-warning);font-weight:bold;">🛡️ YARAスキャン実行</button>
+                    </div>
+                    <!-- YARA ルール管理 -->
+                    <div id="yara-management" style="padding:8px 12px; display:none; border-top:1px solid var(--border-primary);">
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                            <span class="cell-sub" style="font-weight:bold;">ルール管理:</span>
+                            <button class="filter-btn" onclick="yaraImportBrowse()">📁 フォルダからインポート</button>
+                            <button class="filter-btn" onclick="yaraDownloadRuleset()">📥 公開ルールセットをダウンロード</button>
+                            <button class="filter-btn" onclick="yaraToggleRuleList()">📋 ルール一覧</button>
+                        </div>
+                        <div id="yara-download-panel" style="display:none; margin:8px 0; padding:8px; background:var(--bg-tertiary); border-radius:6px;">
+                            <p class="cell-sub" style="margin:0 0 6px 0;">公開YARAルールセットのURLを入力（GitHub等）:</p>
+                            <div style="display:flex; gap:6px;">
+                                <input type="text" id="yara-download-url" class="search-input" placeholder="https://github.com/Neo23x0/signature-base.git" style="flex:1;">
+                                <input type="text" id="yara-download-name" class="search-input" placeholder="カテゴリ名" style="width:120px;" value="signature-base">
+                                <button class="load-btn" onclick="yaraExecDownload()">📥 ダウンロード</button>
+                            </div>
+                            <div class="cell-sub" style="margin-top:6px;">
+                                推奨: <a href="#" onclick="document.getElementById('yara-download-url').value='https://github.com/Neo23x0/signature-base.git';document.getElementById('yara-download-name').value='signature-base';return false;" style="color:var(--accent-info);">Neo23x0/signature-base</a>
+                                 | <a href="#" onclick="document.getElementById('yara-download-url').value='https://github.com/Yara-Rules/rules.git';document.getElementById('yara-download-name').value='yara-rules';return false;" style="color:var(--accent-info);">Yara-Rules/rules</a>
+                                 | <a href="#" onclick="document.getElementById('yara-download-url').value='https://github.com/reversinglabs/reversinglabs-yara-rules.git';document.getElementById('yara-download-name').value='reversinglabs';return false;" style="color:var(--accent-info);">ReversingLabs</a>
+                            </div>
+                        </div>
+                        <div id="yara-rule-list" style="display:none; max-height:200px; overflow-y:auto; margin-top:8px;">
+                            <table><thead><tr>
+                                <th>ファイル名</th><th style="width:80px;">ルール数</th><th style="width:80px;">サイズ</th><th style="width:120px;">更新日時</th><th style="width:60px;">操作</th>
+                            </tr></thead><tbody id="yara-rule-tbody"></tbody></table>
+                        </div>
+                    </div>
+                    <!-- YARA スキャン進捗 -->
+                    <div id="yara-progress" style="display:none; padding:6px 12px;">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <span id="yara-progress-label" style="font-weight:bold; color:var(--accent-warning);">スキャン中...</span>
+                            <span id="yara-progress-pct" class="cell-sub">0%</span>
+                        </div>
+                        <div style="background:var(--bg-tertiary); border-radius:4px; height:6px; overflow:hidden; margin-top:4px;">
+                            <div id="yara-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--accent-warning), var(--accent-error)); transition:width 0.3s;"></div>
+                        </div>
+                    </div>
+                    <!-- YARA 結果サマリー -->
+                    <div id="yara-result-summary" style="display:none; padding:6px 12px; border-top:1px solid var(--border-primary);">
+                        <span id="yara-result-text" class="cell-sub"></span>
+                    </div>
                 </div>
             </div>
 
@@ -3638,7 +3690,7 @@ function fiRenderFiles() {
     if (_fiFilterDanger) list = list.filter(function(f) { return f.result === 'DANGER'; });
 
     if (list.length === 0) {
-        el.innerHTML = '<tr><td colspan="11" style="text-align:center;">該当なし</td></tr>';
+        el.innerHTML = '<tr><td colspan="12" style="text-align:center;">該当なし</td></tr>';
         fiUpdateResultSummary();
         return;
     }
@@ -3681,6 +3733,7 @@ function fiRenderFiles() {
             '<td ' + entropyClass + '>' + f.entropy + '</td>' +
             '<td>' + extMatch + '</td>' +
             '<td>' + statusHtml + '</td>' +
+            '<td>' + (f.yara_matches && f.yara_matches.length > 0 ? '<span style="color:var(--accent-error);font-weight:bold;cursor:pointer;" title="' + f.yara_matches.map(function(m){return m.rule;}).join(', ') + '">● ' + f.yara_matches.length + '</span>' : '<span style="color:var(--text-secondary);">-</span>') + '</td>' +
             '<td>' + resultHtml + '</td>' +
             '<td>' + actionHtml + '</td>' +
             '</tr>';
@@ -4264,6 +4317,55 @@ function fiOpenDetail(idx) {
             w.document.write('</div>');
         }
 
+
+        // --- YARA MATCHES ---
+        if (f.yara_matches && f.yara_matches.length > 0) {
+            w.document.write('<div class="fi-section"><h3>■ YARAスキャン結果（' + f.yara_matches.length + 'ルールマッチ）</h3>');
+            w.document.write('<div class="explain-text">YARAはマルウェアの特徴パターンを定義したルールベースの検知エンジンです。以下のルールがこのファイルにマッチしました。マッチしたルールが多いほど、既知のマルウェアとの類似性が高いことを示します。</div>');
+            for (var ym = 0; ym < f.yara_matches.length; ym++) {
+                var match = f.yara_matches[ym];
+                w.document.write('<div style="background:var(--bg-tertiary);border:1px solid var(--accent-error);border-radius:6px;padding:12px;margin:8px 0;">');
+                w.document.write('<p style="margin:0 0 6px 0;"><span style="color:var(--accent-error);font-weight:bold;font-size:1.05em;">🔴 ' + match.rule + '</span>');
+                w.document.write(' <span class="cell-sub">(' + match.namespace + ')</span></p>');
+                if (match.tags && match.tags.length > 0) {
+                    w.document.write('<p style="margin:0 0 4px 0;"><b>タグ:</b> ');
+                    for (var t = 0; t < match.tags.length; t++) {
+                        w.document.write('<span style="background:var(--accent-warning);color:#000;padding:1px 6px;border-radius:3px;font-size:0.85em;margin-right:4px;">' + match.tags[t] + '</span>');
+                    }
+                    w.document.write('</p>');
+                }
+                // Rule description (prominent)
+                if (match.meta && match.meta.description) {
+                    w.document.write('<div class="explain-text" style="border-left-color:var(--accent-error);margin:8px 0;"><b>📖 ルール解説:</b> ' + match.meta.description + '</div>');
+                }
+                if (match.meta && match.meta.reference) {
+                    w.document.write('<p style="margin:4px 0;"><b>参考情報:</b> <a href="' + match.meta.reference + '" style="color:var(--accent-info);word-break:break-all;" target="_blank" rel="noopener">' + match.meta.reference + '</a></p>');
+                }
+                if (match.meta && Object.keys(match.meta).length > 0) {
+                    w.document.write('<p style="margin:4px 0;"><b>メタ情報:</b></p><table>');
+                    for (var mk in match.meta) {
+                        var metaLabel = mk;
+                        var metaLabelMap = {author:'作成者', description:'説明', reference:'参考URL', date:'作成日', severity:'深刻度', hash:'ハッシュ', score:'スコア', license:'ライセンス'};
+                        if (metaLabelMap[mk]) metaLabel = metaLabelMap[mk] + ' (' + mk + ')';
+                        w.document.write('<tr><td style="min-width:140px;white-space:nowrap;color:var(--accent-info);"><b>' + metaLabel + '</b></td><td>' + match.meta[mk] + '</td></tr>');
+                    }
+                    w.document.write('</table>');
+                }
+                if (match.strings && match.strings.length > 0) {
+                    w.document.write('<p style="margin:6px 0 4px 0;"><b>マッチした文字列（' + match.strings.length + '件）:</b></p>');
+                    w.document.write('<table><tr><th style="min-width:120px;white-space:nowrap;">識別子</th><th style="min-width:80px;white-space:nowrap;">オフセット</th><th>データ（hex）</th></tr>');
+                    for (var ms = 0; ms < Math.min(match.strings.length, 20); ms++) {
+                        var si = match.strings[ms];
+                        w.document.write('<tr><td style="font-family:monospace;color:var(--accent-warning);">' + si.identifier + '</td><td>0x' + si.offset.toString(16).toUpperCase() + '</td><td style="font-family:monospace;font-size:0.82em;word-break:break-all;">' + si.data + '</td></tr>');
+                    }
+                    if (match.strings.length > 20) w.document.write('<tr><td colspan="3" style="color:var(--text-secondary);">... 他 ' + (match.strings.length - 20) + ' 件</td></tr>');
+                    w.document.write('</table>');
+                }
+                w.document.write('</div>');
+            }
+            w.document.write('</div>');
+        }
+
     // ===== 6. ボタン =====
     w.document.write('<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-primary);"><button onclick="window.print()" style="padding:8px 18px;cursor:pointer;margin-right:8px;">🖨️ 印刷</button> <button onclick="window.close()" style="padding:8px 18px;cursor:pointer;">✕ 閉じる</button></div>');
     w.document.write('</body></html>');
@@ -4275,6 +4377,209 @@ function fiOpenDetail(idx) {
 // ============================================
 // Scan control from UI
 // ============================================
+
+// ============================================
+// P27-D: YARA Manager Functions
+// ============================================
+var _yaraStatus = null;
+
+function yaraLoadStatus() {
+    fetch('/api/yara/status').then(function(r) { return r.json(); }).then(function(res) {
+        _yaraStatus = res;
+        var badge = document.getElementById('yara-status-badge');
+        var mgmt = document.getElementById('yara-management');
+        if (res.available) {
+            var ruleCount = res.rule_files || 0;
+            var compiled = res.compiled ? '✅ コンパイル済' : '⚠ 未コンパイル';
+            badge.innerHTML = '<span style="color:var(--accent-success);">YARA ' + (res.version || '') + '</span> | ルール: ' + ruleCount + '件 | ' + compiled;
+            mgmt.style.display = 'block';
+        } else {
+            badge.innerHTML = '<span style="color:var(--accent-error);">YARA未インストール</span>';
+            mgmt.style.display = 'none';
+        }
+    }).catch(function() {
+        document.getElementById('yara-status-badge').innerHTML = '<span style="color:var(--accent-error);">通信エラー</span>';
+    });
+}
+
+function yaraCompile() {
+    document.getElementById('yara-status-badge').innerHTML = '⏳ コンパイル中...';
+    fetch('/api/yara/compile', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+            showToast('info', 'YARAコンパイル完了', res.compiled_files + 'ファイル（スキップ: ' + (res.skipped_files || 0) + '）');
+        } else {
+            showToast('error', 'YARAコンパイルエラー', res.error || 'Unknown');
+        }
+        yaraLoadStatus();
+    }).catch(function() { showToast('error', 'YARA', '通信エラー'); });
+}
+
+function yaraToggleRuleList() {
+    var el = document.getElementById('yara-rule-list');
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        yaraRefreshRuleList();
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function yaraRefreshRuleList() {
+    fetch('/api/yara/rules').then(function(r) { return r.json(); }).then(function(res) {
+        var tbody = document.getElementById('yara-rule-tbody');
+        if (!res.rules || res.rules.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);">ルールファイルがありません。インポートまたはダウンロードしてください。</td></tr>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < res.rules.length; i++) {
+            var r = res.rules[i];
+            html += '<tr>';
+            html += '<td title="' + r.relative + '">' + r.filename + '</td>';
+            html += '<td>' + r.rule_count + '</td>';
+            html += '<td>' + (r.size / 1024).toFixed(1) + ' KB</td>';
+            html += '<td class="cell-sub">' + r.mtime + '</td>';
+            html += '<td><button class="filter-btn" style="padding:2px 6px;font-size:0.8em;" onclick="yaraDeleteRule(\'' + r.filepath.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')">🗑️</button></td>';
+            html += '</tr>';
+        }
+        tbody.innerHTML = html;
+    });
+}
+
+function yaraDeleteRule(filepath) {
+    if (!confirm('このルールファイルを削除しますか？')) return;
+    fetch('/api/yara/delete', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({filepath: filepath})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+            showToast('info', 'YARA', 'ルール削除完了');
+            yaraRefreshRuleList();
+            yaraLoadStatus();
+        } else {
+            showToast('error', 'YARA', res.error || '削除失敗');
+        }
+    });
+}
+
+function yaraImportBrowse() {
+    fetch('/api/yara/browse').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'ok' && res.folder) {
+            document.getElementById('yara-status-badge').innerHTML = '⏳ インポート中...';
+            fetch('/api/yara/import', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({source: res.folder, category: 'imported'})
+            }).then(function(r) { return r.json(); }).then(function(ir) {
+                showToast('info', 'YARAインポート', 'インポート: ' + (ir.imported || 0) + '件 / 重複スキップ: ' + (ir.skipped_duplicates || 0) + '件');
+                yaraLoadStatus();
+                yaraRefreshRuleList();
+            });
+        }
+    }).catch(function() { showToast('error', 'YARA', 'フォルダ選択エラー'); });
+}
+
+function yaraDownloadRuleset() {
+    var panel = document.getElementById('yara-download-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function yaraExecDownload() {
+    var url = document.getElementById('yara-download-url').value.trim();
+    var name = document.getElementById('yara-download-name').value.trim() || 'downloaded';
+    if (!url) { alert('URLを入力してください'); return; }
+    document.getElementById('yara-status-badge').innerHTML = '⏳ ダウンロード中（数分かかる場合があります）...';
+    showToast('info', 'YARA', 'ダウンロード開始: ' + url);
+    fetch('/api/yara/download', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({url: url, name: name})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success !== false) {
+            showToast('info', 'YARAダウンロード完了', 'インポート: ' + (res.imported || 0) + '件 / 重複スキップ: ' + (res.skipped_duplicates || 0) + '件');
+        } else {
+            showToast('error', 'YARAダウンロードエラー', res.error || 'Unknown');
+        }
+        yaraLoadStatus();
+        yaraRefreshRuleList();
+        document.getElementById('yara-download-panel').style.display = 'none';
+    }).catch(function() { showToast('error', 'YARA', '通信エラー'); yaraLoadStatus(); });
+}
+
+function yaraScanAll() {
+    if (!_fiFiles || _fiFiles.length === 0) { alert('先にフォルダを読み込んでファイル一覧を表示してください'); return; }
+    var targets = _fiFiles.filter(function(f) { return f.status === 'done'; });
+    if (targets.length === 0) { alert('先にファイル検査を実行してください'); return; }
+
+    var container = document.getElementById('yara-progress');
+    container.style.display = 'block';
+    var total = targets.length;
+    var done = 0;
+    var matchCount = 0;
+
+    document.getElementById('yara-progress-label').textContent = 'YARAスキャン中... 0/' + total;
+    document.getElementById('yara-progress-bar').style.width = '0%';
+    document.getElementById('yara-progress-pct').textContent = '0%';
+
+    function next() {
+        if (done >= total) {
+            document.getElementById('yara-progress-label').textContent = '✅ YARAスキャン完了 ' + total + '/' + total;
+            document.getElementById('yara-progress-bar').style.width = '100%';
+            document.getElementById('yara-progress-pct').textContent = '100%';
+            setTimeout(function() { container.style.display = 'none'; }, 3000);
+
+            var summary = document.getElementById('yara-result-summary');
+            var text = document.getElementById('yara-result-text');
+            summary.style.display = 'block';
+            text.innerHTML = '🛡️ YARAスキャン結果: <span style="color:var(--accent-error);font-weight:bold;">' + matchCount + '</span> ファイルでルールマッチ / ' + total + ' ファイルスキャン済';
+
+            fiRenderFiles();
+            return;
+        }
+        var f = targets[done];
+        fetch('/api/yara/scan', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({filepath: f.filepath})
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            if (res.matches && res.matches.length > 0) {
+                f.yara_matches = res.matches;
+                matchCount++;
+                // Upgrade status if YARA matched
+                if (f.result !== 'DANGER') {
+                    f.result = 'DANGER';
+                    f.reason = 'YARAルールマッチ: ' + res.matches.map(function(m) { return m.rule; }).join(', ');
+                }
+                f.findings = f.findings || [];
+                for (var m = 0; m < res.matches.length; m++) {
+                    f.findings.push({
+                        type: 'DANGER',
+                        detail: 'YARAルールマッチ: ' + res.matches[m].rule + '（' + res.matches[m].namespace + '）' + (res.matches[m].tags.length > 0 ? ' [タグ: ' + res.matches[m].tags.join(', ') + ']' : '')
+                    });
+                }
+            }
+            done++;
+            var pct = Math.round((done / total) * 100);
+            document.getElementById('yara-progress-label').textContent = 'YARAスキャン中... ' + done + '/' + total + ' - ' + f.filename;
+            document.getElementById('yara-progress-bar').style.width = pct + '%';
+            document.getElementById('yara-progress-pct').textContent = pct + '%';
+            next();
+        }).catch(function() {
+            done++;
+            next();
+        });
+    }
+    next();
+}
+
+// Auto-load YARA status when file inspect tab is shown
+(function() {
+    var origSwitch = window.switchTab;
+    if (origSwitch) {
+        window.switchTab = function(tab, el) {
+            origSwitch(tab, el);
+            if (tab === 'fileinspect') { yaraLoadStatus(); }
+        };
+    }
+})();
+
 function startScan() {
     if (!confirm('フルスキャンを実行しますか？\n管理者権限が必要です。数分かかる場合があります。')) return;
     var btn = document.getElementById('btn-scan');
