@@ -845,6 +845,18 @@ def _run_scan():
         _scan_status["done"] = True
         traceback.print_exc()
 
+# F1-d: 安全なシャットダウンエンドポイント
+@app.route('/api/shutdown', methods=['POST'])
+def shutdown_server():
+    """UIからサーバーを安全に終了する"""
+    import os, signal
+    def _shutdown():
+        import time
+        time.sleep(0.5)
+        os._exit(0)
+    threading.Thread(target=_shutdown, daemon=True).start()
+    return jsonify({"status": "ok", "message": "サーバーを終了します"})
+
 
 def start_server_only():
     """Start web server without scanning. Scan triggered via UI button."""

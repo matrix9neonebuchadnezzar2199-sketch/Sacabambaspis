@@ -1,4 +1,5 @@
 ﻿import os
+import sys
 import json
 import hashlib
 import shutil
@@ -15,7 +16,12 @@ class YaraManager:
     """YARA rule manager: load, compile, scan, import, deduplicate."""
 
     def __init__(self, rules_dir=None):
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # PyInstaller exe: sys.executable の隣を優先
+        # 通常実行: __file__ ベース
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.rules_dir = rules_dir or os.path.join(base, 'yara_rules')
         self.compiled_rules = None
         self._rule_index = {}  # hash -> filepath

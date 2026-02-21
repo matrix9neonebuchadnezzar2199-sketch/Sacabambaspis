@@ -442,7 +442,6 @@
                 <button class="threat-detail-btn" onclick="toggleThreatDetail()" data-tooltip="検知サマリー詳細">📊</button>
             </div>
             <button class="header-settings-btn" onclick="toggleSettings()" title="表示設定">🎨</button>
-            <button class="header-settings-btn" onclick="if(confirm('サーバーを終了しますか？')){fetch('/api/shutdown',{method:'POST'}).then(function(){document.title='終了しました';document.body.innerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:24px;&quot;>サーバーを終了しました。このタブを閉じてください。</div>';})}" title="サーバー終了" style="color:var(--accent-error);">⏻</button>
             </div>
         </div>
 
@@ -934,6 +933,11 @@
                         <button class="memdump-subtab" data-subtab="selective" onclick="memdumpSwitchSub('selective', this)">🎯 アドレス単位抽出</button>
                         <button class="memdump-subtab" data-subtab="fullmem" onclick="memdumpSwitchSub('fullmem', this)">💾 全メモリ</button>
                         <button class="memdump-subtab" data-subtab="dumpanalyze" onclick="memdumpSwitchSub('dumpanalyze', this)">📂 ダンプ解析</button>
+                        <button class="memdump-subtab" data-subtab="strings" onclick="memdumpSwitchSub('strings', this)">🔤 文字列</button>
+                        <button class="memdump-subtab" data-subtab="dlls" onclick="memdumpSwitchSub('dlls', this)">📚 DLL</button>
+                        <button class="memdump-subtab" data-subtab="memmap" onclick="memdumpSwitchSub('memmap', this)">🗺️ メモリマップ</button>
+                        <button class="memdump-subtab" data-subtab="pe" onclick="memdumpSwitchSub('pe', this)">🔍 PE検出</button>
+                        <button class="memdump-subtab" data-subtab="hex" onclick="memdumpSwitchSub('hex', this)">🔢 Hex</button>
                     </div>
 
                     <!-- サブタブ: ダンプ -->
@@ -1060,11 +1064,112 @@
 
 
                     <!-- サブタブ: 文字列抽出 -->
-                </div><!-- /memdump-lower-pane -->
-            </div><!-- /tab-memdump -->
+                    <div class="memdump-sub-content" id="memdump-sub-strings">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">🔤 文字列抽出</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('strings')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <label class="cell-sub">最小文字数:</label>
+                            <input type="number" id="memdump-str-minlen" value="4" min="2" max="50" style="width:60px;" class="search-input">
+                            <label class="cell-sub">最大件数:</label>
+                            <input type="number" id="memdump-str-maxresults" value="5000" min="100" max="50000" style="width:80px;" class="search-input">
+                            <button class="load-btn" onclick="memdumpExecStrings()">🔤 抽出実行</button>
+                            <input type="text" id="memdump-str-filter" class="search-input" placeholder="結果フィルタ..." onkeyup="memdumpFilterStrings()" style="max-width:200px;">
+                            <button class="filter-btn" onclick="memdumpExportStringsCSV()">📁 CSV出力</button>
+                            <span id="memdump-str-status" class="cell-sub"></span>
+                        </div>
+                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
+                            <table>
+                                <thead><tr><th style="width:140px;">オフセット</th><th style="width:80px;">種別</th><th>文字列</th></tr></thead>
+                                <tbody id="memdump-str-list"></tbody>
+                            </table>
+                        </div>
+                    </div>
 
+                    <!-- サブタブ: DLL -->
+                    <div class="memdump-sub-content" id="memdump-sub-dlls">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">📚 ロード済みDLL一覧</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('dlls')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px;">
+                            <button class="load-btn" onclick="memdumpExecDlls()">📚 DLL取得</button>
+                            <span id="memdump-dll-status" class="cell-sub" style="margin-left:10px;"></span>
+                        </div>
+                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
+                            <table>
+                                <thead><tr><th>名前</th><th>パス</th><th style="width:100px;">ベース</th><th style="width:80px;">サイズ</th><th style="width:60px;">判定</th></tr></thead>
+                                <tbody id="memdump-dll-list"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- サブタブ: メモリマップ -->
+                    <div class="memdump-sub-content" id="memdump-sub-memmap">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">🗺️ メモリ領域マップ</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('memmap')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px; display:flex; gap:8px; align-items:center;">
+                            <button class="load-btn" onclick="memdumpExecMemmap()">🗺️ マップ取得</button>
+                            <button class="filter-btn" id="memdump-mm-rwx-btn" onclick="memdumpToggleRwxFilter()">🔴 RWXのみ (OFF)</button>
+                            <button class="filter-btn" id="memdump-mm-exec-btn" onclick="memdumpToggleExecFilter()">🟡 実行可能のみ (OFF)</button>
+                            <span id="memdump-mm-status" class="cell-sub" style="margin-left:10px;"></span>
+                        </div>
+                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
+                            <table>
+                                <thead><tr><th>ベースアドレス</th><th style="width:100px;">サイズ</th><th style="width:80px;">権限</th><th style="width:80px;">種別</th><th style="width:60px;">RWX</th></tr></thead>
+                                <tbody id="memdump-mm-list"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- サブタブ: PE検出 -->
+                    <div class="memdump-sub-content" id="memdump-sub-pe">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">🔍 PEヘッダー検出</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('pe')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px;">
+                            <button class="load-btn" onclick="memdumpExecPeScan()">🔍 PEスキャン</button>
+                            <span id="memdump-pe-status" class="cell-sub" style="margin-left:10px;"></span>
+                        </div>
+                        <div class="data-table-wrapper" style="max-height:50vh; overflow-y:auto;" data-scrollable>
+                            <table>
+                                <thead><tr><th>アドレス</th><th>領域ベース</th><th style="width:80px;">権限</th><th style="width:100px;">推定サイズ</th><th style="width:120px;">操作</th></tr></thead>
+                                <tbody id="memdump-pe-list"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- サブタブ: Hexビューア -->
+                    <div class="memdump-sub-content" id="memdump-sub-hex">
+                        <div class="memdump-fullscreen-bar">
+                            <span class="guide-title">🔢 Hexビューア</span>
+                            <button class="filter-btn memdump-fullscreen-btn" onclick="memdumpOpenFull('hex')">🔲 全画面で開く</button>
+                        </div>
+                        <div style="padding:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <label class="cell-sub">アドレス:</label>
+                            <input type="text" id="memdump-hex-addr" class="search-input" placeholder="0x00000000" style="width:180px;">
+                            <label class="cell-sub">サイズ:</label>
+                            <select id="memdump-hex-size" class="search-input" style="width:100px;">
+                                <option value="256">256 B</option>
+                                <option value="512">512 B</option>
+                                <option value="1024" selected>1 KB</option>
+                                <option value="2048">2 KB</option>
+                                <option value="4096">4 KB</option>
+                            </select>
+                            <button class="load-btn" onclick="memdumpExecHex()">🔢 表示</button>
+                            <button class="filter-btn" onclick="memdumpHexPrev()">◀ 前</button>
+                            <button class="filter-btn" onclick="memdumpHexNext()">▶ 次</button>
+                            <span id="memdump-hex-status" class="cell-sub"></span>
+                        </div>
+                        <div id="memdump-hex-view" class="memdump-hex-container"></div>
+                    </div>
+                </div>
+            </div>
             <!-- P27: ファイル検査タブ -->
-
             <div id="tab-fileinspect" aria-label="ファイル検査" class="card">
                 <div class="guide-box">
                     <span class="guide-title">📂 ファイル検査</span>
@@ -1650,7 +1755,6 @@ function renderTimeline(items) {
 }
 
 function renderTables(keyword) {
-    if (!allData) return;
     /* イベントログ */
     renderTableGeneric('list-logs', allData.eventlogs, ['id', 'message', 'desc'], keyword, 'logs', i => {
         const key = getItemKey('logs', i);
@@ -3560,35 +3664,24 @@ var _memdumpHexAddr = null;
         runNext();
     }
 
-        function memdumpDaRenderAll(el) {
+    function memdumpDaRenderAll(el) {
         var html = '';
-
-        // タブボタン
-        html += '<div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:12px; border-bottom:2px solid var(--border-primary); padding-bottom:4px;">';
-        html += '<button class="memdump-subtab active" onclick="memdumpDaShowTab(\'strings\', this)">🔤 文字列</button>';
-        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'pe\', this)">🔍 PE検出</button>';
-        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'hex\', this)">🔢 Hex</button>';
-        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'yara\', this)">🛡️ YARA</button>';
-        html += '<button class="memdump-subtab" onclick="memdumpDaShowTab(\'ioc\', this)">🔎 IOC</button>';
-        html += '</div>';
-
         var r;
 
         // === 文字列 ===
         r = _memdumpDaAllResults['strings'];
-        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-strings">';
+        html += '<div style="margin-bottom:16px; padding:12px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px;">';
         html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔤 文字列抽出</h3>';
         if (r && r.strings && r.strings.length > 0) {
             html += '<p class="cell-sub">' + r.strings.length + ' 件抽出' + (r.total_found > r.strings.length ? ' (上限到達, 全' + r.total_found + '件)' : '') + '</p>';
-            html += '<div style="margin-bottom:6px;"><input type="text" id="memdump-da-str-filter" class="search-input" placeholder="文字列フィルタ..." onkeyup="memdumpDaFilterStrings()" style="max-width:300px;"></div>';
-            html += '<div class="data-table-wrapper" style="max-height:60vh; overflow-y:auto;"><table>';
-            html += '<thead><tr><th style="width:120px;">オフセット</th><th style="width:80px;">種別</th><th>文字列</th></tr></thead><tbody id="memdump-da-str-tbody">';
-            var maxShow = Math.min(r.strings.length, 2000);
+            html += '<div class="data-table-wrapper" style="max-height:300px; overflow-y:auto;"><table>';
+            html += '<thead><tr><th style="width:120px;">オフセット</th><th style="width:80px;">種別</th><th>文字列</th></tr></thead><tbody>';
+            var maxShow = Math.min(r.strings.length, 500);
             for (var i = 0; i < maxShow; i++) {
                 var s = r.strings[i];
                 html += '<tr><td style="font-family:monospace;">' + s.offset + '</td><td>' + s.type + '</td><td style="font-family:monospace;font-size:0.85em;word-break:break-all;">' + (s.value || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td></tr>';
             }
-            if (r.strings.length > 2000) html += '<tr><td colspan="3" class="cell-sub">... 他 ' + (r.strings.length - 2000) + ' 件（フィルタで絞り込んでください）</td></tr>';
+            if (r.strings.length > 500) html += '<tr><td colspan="3" class="cell-sub">... 他 ' + (r.strings.length - 500) + ' 件</td></tr>';
             html += '</tbody></table></div>';
         } else {
             html += '<p class="cell-sub" style="color:var(--text-secondary);">文字列なし' + (r && r.error ? ' (' + r.error + ')' : '') + '</p>';
@@ -3597,7 +3690,7 @@ var _memdumpHexAddr = null;
 
         // === PE検出 ===
         r = _memdumpDaAllResults['pe'];
-        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-pe" style="display:none;">';
+        html += '<div style="margin-bottom:16px; padding:12px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px;">';
         html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔍 PE検出</h3>';
         if (r && r.pe_headers && r.pe_headers.length > 0) {
             html += '<p class="cell-sub">' + r.pe_headers.length + ' 個のPEヘッダー検出</p>';
@@ -3614,50 +3707,35 @@ var _memdumpHexAddr = null;
 
         // === Hex ===
         r = _memdumpDaAllResults['hex'];
-        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-hex" style="display:none;">';
-        html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔢 Hexビューア</h3>';
-        html += '<div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">';
-        html += '<label class="cell-sub">オフセット:</label>';
-        html += '<input type="text" id="memdump-da-hex-nav-offset" class="search-input" placeholder="0" style="width:120px;" value="0">';
-        html += '<label class="cell-sub">サイズ:</label>';
-        html += '<select id="memdump-da-hex-nav-size" class="search-input" style="width:100px;"><option value="256">256 B</option><option value="512">512 B</option><option value="1024" selected>1 KB</option><option value="4096">4 KB</option></select>';
-        html += '<button class="filter-btn" onclick="memdumpDaHexNav(\'go\')">表示</button>';
-        html += '<button class="filter-btn" onclick="memdumpDaHexNav(\'prev\')">◀ 前</button>';
-        html += '<button class="filter-btn" onclick="memdumpDaHexNav(\'next\')">▶ 次</button>';
-        html += '</div>';
-        html += '<div id="memdump-da-hex-view">';
+        html += '<div style="margin-bottom:16px; padding:12px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px;">';
+        html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔢 Hexプレビュー（先頭1KB）</h3>';
         if (r && r.hex_lines && r.hex_lines.length > 0) {
-            html += memdumpDaBuildHexHtml(r.hex_lines);
+            html += '<div class="memdump-hex-table" style="max-height:300px; overflow-y:auto;">';
+            html += '<div class="memdump-hex-header"><span class="memdump-hex-addr-col">Address</span><span class="memdump-hex-hex-col">Hex</span><span>ASCII</span></div>';
+            r.hex_lines.forEach(function(l) {
+                html += '<div class="memdump-hex-line"><span class="memdump-hex-addr-col">' + l.address + '</span><span class="memdump-hex-hex-col">' + l.hex + '</span><span class="memdump-hex-ascii-col">' + (l.ascii || '').replace(/</g, '&lt;') + '</span></div>';
+            });
+            html += '</div>';
         } else {
             html += '<p class="cell-sub" style="color:var(--text-secondary);">データなし</p>';
         }
-        html += '</div></div>';
+        html += '</div>';
 
         // === YARA ===
         r = _memdumpDaAllResults['yara'];
-        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-yara" style="display:none;">';
+        html += '<div style="margin-bottom:16px; padding:12px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px;">';
         html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🛡️ YARAスキャン</h3>';
         if (r && r.yara_error) {
             html += '<p class="cell-sub" style="color:var(--accent-warning);">⚠ ' + r.yara_error + '</p>';
         } else if (r && r.yara_matches && r.yara_matches.length > 0) {
             html += '<p class="cell-sub" style="color:var(--accent-error);font-weight:bold;">' + r.yara_matches.length + ' ルールマッチ</p>';
             r.yara_matches.forEach(function(m) {
-                html += '<div style="margin:6px 0; padding:10px; background:var(--bg-tertiary); border-left:4px solid var(--accent-error); border-radius:4px;">';
-                html += '<span style="color:var(--accent-error);font-weight:bold;font-size:1.05em;">🛡️ ' + (m.rule || '') + '</span>';
-                if (m.namespace) html += ' <span class="cell-sub">(' + m.namespace + ')</span>';
-                if (m.tags && m.tags.length) { m.tags.forEach(function(t) { html += ' <span style="background:var(--accent-warning);color:#000;padding:1px 6px;border-radius:3px;font-size:0.8em;">' + t + '</span>'; }); }
-                if (m.meta) {
-                    if (m.meta.description) html += '<div style="margin-top:4px;">' + m.meta.description + '</div>';
-                    html += '<table style="margin-top:6px;font-size:0.9em;"><tbody>';
-                    for (var k in m.meta) { html += '<tr><td style="font-weight:bold;padding-right:10px;">' + k + '</td><td>' + m.meta[k] + '</td></tr>'; }
-                    html += '</tbody></table>';
+                html += '<div style="margin:6px 0; padding:8px; background:var(--bg-tertiary); border-left:4px solid var(--accent-error); border-radius:4px;">';
+                html += '<span style="color:var(--accent-error);font-weight:bold;">🛡️ ' + (m.rule || '') + '</span>';
+                if (m.tags && m.tags.length) {
+                    m.tags.forEach(function(t) { html += ' <span style="background:var(--accent-warning);color:#000;padding:1px 6px;border-radius:3px;font-size:0.8em;">' + t + '</span>'; });
                 }
-                if (m.strings && m.strings.length > 0) {
-                    html += '<div style="margin-top:6px;font-size:0.85em;"><b>マッチ文字列:</b><br>';
-                    m.strings.slice(0, 20).forEach(function(s) { html += '<span style="font-family:monospace;">' + (s.identifier || '') + ' @ 0x' + (s.offset || 0).toString(16).toUpperCase() + '</span><br>'; });
-                    if (m.strings.length > 20) html += '<span class="cell-sub">... 他 ' + (m.strings.length - 20) + ' 件</span>';
-                    html += '</div>';
-                }
+                if (m.meta && m.meta.description) html += '<div class="cell-sub" style="margin-top:4px;">' + m.meta.description + '</div>';
                 html += '</div>';
             });
         } else {
@@ -3667,7 +3745,7 @@ var _memdumpHexAddr = null;
 
         // === IOC ===
         r = _memdumpDaAllResults['ioc'];
-        html += '<div class="memdump-da-tab-content" id="memdump-da-tab-ioc" style="display:none;">';
+        html += '<div style="margin-bottom:16px; padding:12px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px;">';
         html += '<h3 style="margin:0 0 8px 0; color:var(--accent-info);">🔎 IOC抽出</h3>';
         if (r && r.iocs && r.iocs.length > 0) {
             var catIcons = {URL:'🌐', IPv4:'📡', Email:'📧', Registry:'🔑', Domain:'🌍'};
@@ -3682,7 +3760,7 @@ var _memdumpHexAddr = null;
                 }
             }
             html += '</div>';
-            html += '<div class="data-table-wrapper" style="max-height:60vh; overflow-y:auto;"><table>';
+            html += '<div class="data-table-wrapper" style="max-height:300px; overflow-y:auto;"><table>';
             html += '<thead><tr><th style="width:80px;">種別</th><th>値</th><th style="width:60px;">件数</th></tr></thead><tbody>';
             r.iocs.forEach(function(ioc) {
                 var escaped = (ioc.value || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -3701,64 +3779,6 @@ var _memdumpHexAddr = null;
 
         el.innerHTML = html;
     }
-
-    // タブ切替
-    function memdumpDaShowTab(tab, btn) {
-        document.querySelectorAll('.memdump-da-tab-content').forEach(function(c) { c.style.display = 'none'; });
-        var target = document.getElementById('memdump-da-tab-' + tab);
-        if (target) target.style.display = 'block';
-        if (btn) {
-            btn.parentElement.querySelectorAll('.memdump-subtab').forEach(function(b) { b.classList.remove('active'); });
-            btn.classList.add('active');
-        }
-    }
-
-    // Hex ナビゲーション
-    function memdumpDaBuildHexHtml(lines) {
-        var h = '<div class="memdump-hex-table" style="max-height:60vh; overflow-y:auto;">';
-        h += '<div class="memdump-hex-header"><span class="memdump-hex-addr-col">Address</span><span class="memdump-hex-hex-col">Hex</span><span>ASCII</span></div>';
-        lines.forEach(function(l) {
-            h += '<div class="memdump-hex-line"><span class="memdump-hex-addr-col">' + l.address + '</span><span class="memdump-hex-hex-col">' + l.hex + '</span><span class="memdump-hex-ascii-col">' + (l.ascii || '').replace(/</g, '&lt;') + '</span></div>';
-        });
-        h += '</div>';
-        return h;
-    }
-
-    function memdumpDaHexNav(action) {
-        var filepath = document.getElementById('memdump-da-filelist').value;
-        if (!filepath) return;
-        var offsetEl = document.getElementById('memdump-da-hex-nav-offset');
-        var sizeEl = document.getElementById('memdump-da-hex-nav-size');
-        var offset = parseInt(offsetEl.value) || 0;
-        var size = parseInt(sizeEl.value) || 1024;
-        if (action === 'prev') { offset = Math.max(0, offset - size); offsetEl.value = offset; }
-        else if (action === 'next') { offset = offset + size; offsetEl.value = offset; }
-        fetch('/api/memdump/analyze', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({filepath: filepath, type: 'hex', hex_offset: offset, hex_size: size})
-        }).then(function(r) { return r.json(); }).then(function(res) {
-            var viewEl = document.getElementById('memdump-da-hex-view');
-            if (res.hex_lines && res.hex_lines.length > 0) {
-                viewEl.innerHTML = memdumpDaBuildHexHtml(res.hex_lines);
-            } else {
-                viewEl.innerHTML = '<p class="cell-sub">データなし（ファイル末尾を超えています）</p>';
-            }
-        });
-    }
-
-    // 文字列フィルタ
-    function memdumpDaFilterStrings() {
-        var keyword = (document.getElementById('memdump-da-str-filter').value || '').toLowerCase();
-        var tbody = document.getElementById('memdump-da-str-tbody');
-        if (!tbody) return;
-        var rows = tbody.querySelectorAll('tr');
-        rows.forEach(function(row) {
-            if (!keyword) { row.style.display = ''; return; }
-            var text = row.textContent.toLowerCase();
-            row.style.display = text.includes(keyword) ? '' : 'none';
-        });
-    }
-
 
     function memdumpDaExportCSV() {
         if (!_memdumpDaAllResults || Object.keys(_memdumpDaAllResults).length === 0) { alert('先にファイルを選択してください'); return; }

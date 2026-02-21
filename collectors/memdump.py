@@ -47,10 +47,12 @@ class MemoryDumper:
         self.kernel32 = ctypes.windll.kernel32
         self.dbghelp = ctypes.windll.dbghelp
         self.psapi = ctypes.windll.psapi
-        self.dump_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "dumps"
-        )
+        # F1-b: exe環境ではexe隣接、通常環境ではプロジェクトルート
+        if getattr(sys, 'frozen', False):
+            _base = os.path.dirname(sys.executable)
+        else:
+            _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.dump_dir = os.path.join(_base, "dumps")
         if not os.path.exists(self.dump_dir):
             os.makedirs(self.dump_dir)
 
@@ -86,9 +88,6 @@ class MemoryDumper:
         if output_dir is None:
             output_dir = self.dump_dir
 
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         # Get process name
         try:
@@ -98,8 +97,13 @@ class MemoryDumper:
         except Exception:
             pname = 'unknown'
 
-        filename = f"{pname}_{pid}_{ts}.dmp"
-        filepath = os.path.join(output_dir, filename)
+        # F1-c: サブフォルダ形式 YYYYMMDD_HHMMSS_プロセス名/
+        dump_subdir = os.path.join(output_dir, f"{ts}_{pname}")
+        os.makedirs(dump_subdir, exist_ok=True)
+
+        filename = f"{pname}_{pid}.dmp"
+        filepath = os.path.join(dump_subdir, filename)
+
 
         handle = self.kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
         if not handle:
@@ -352,8 +356,11 @@ class MemoryDumper:
         """Export a PE image from memory to .bin file."""
         if output_dir is None:
             output_dir = self.dump_dir
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        # F1-c: サブフォルダ形式
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dump_subdir = os.path.join(output_dir, f"{ts}_pe_export")
+        os.makedirs(dump_subdir, exist_ok=True)
+
 
         address = int(address_hex, 16)
         handle = self.kernel32.OpenProcess(
@@ -366,14 +373,12 @@ class MemoryDumper:
             data = self._read_region(handle, address, 0x200000)
             if not data or len(data) < 64:
                 return {'success': False, 'error': 'Cannot read memory at address.'}
-
             pe_size = self._estimate_pe_size(data, 0)
             pe_data = data[:pe_size]
-
-            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"pe_dump_{address_hex}_{ts}.bin"
-            filepath = os.path.join(output_dir, filename)
+            filename = f"pe_dump_{address_hex}.bin"
+            filepath = os.path.join(dump_subdir, filename)
             with open(filepath, 'wb') as f:
+
                 f.write(pe_data)
 
             return {
@@ -552,7 +557,17 @@ class MemoryDumper:
     def dump_process_selective(self, pid, output_dir=None, include_heap=True, include_stack=True, include_executable=True, include_mapped=False, include_all=False):
         """Dump selected memory region types of a process."""
         out = output_dir or self.dump_dir
-        os.makedirs(out, exist_ok=True)
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        try:
+            import psutil
+            proc = psutil.Process(pid)
+            pname = proc.name().replace('.exe', '')
+        except Exception:
+            pname = 'unknown'
+        # F1-c: サブフォルダ形式
+        dump_subdir = os.path.join(out, f"{ts}_{pname}_selective")
+        os.makedirs(dump_subdir, exist_ok=True)
+
         PROCESS_ALL_ACCESS = 0x1F0FFF
         handle = self.kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
         if not handle:
@@ -617,7 +632,7 @@ class MemoryDumper:
                 data = self._read_region(handle, base, size)
                 if data and len(data) > 0:
                     fname = f"{category}_0x{base:016X}_{size}.bin"
-                    fpath = os.path.join(out, f"pid{pid}_{fname}")
+                    fpath = os.path.join(dump_subdir, fname)
                     with open(fpath, "wb") as f:
                         f.write(data)
                     total_size += len(data)
@@ -633,7 +648,7 @@ class MemoryDumper:
                 "pid": pid,
                 "region_count": len(results),
                 "total_size": self._format_size(total_size),
-                "output_dir": out,
+                "output_dir": dump_subdir,
                 "regions": results
             }
         finally:

@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Sacabambaspis.spec - PyInstaller Build Configuration
-# Version: v3.2
+# Version: v4.0 (P27-F)
 # ERR-SPEC-001: specファイル読み込みエラー時はパスを確認
 
 block_cipher = None
@@ -33,6 +33,14 @@ a = Analysis(
         'collectors.srum',
         'utils.path_helper',
         'utils.tutor_template',
+        'utils.yara_manager',
+        'collectors.file_inspector',
+        'collectors.memdump',
+        'olefile',
+        'PyPDF2',
+        'yara',
+        'tkinter',
+        'tkinter.filedialog',
     ],
     hookspath=[],
     hooksconfig={},

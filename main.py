@@ -17,6 +17,20 @@ def enable_colors():
         os.system('')
 
 def print_banner():
+    # exe環境でのcp932エラー回避
+    import io
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+    # exe環境でのcp932エラー回避
+    import io
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
     # カラーコード定義
     CYAN = '\033[96m'
     YELLOW = '\033[93m'
