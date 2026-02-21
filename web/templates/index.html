@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -318,6 +318,12 @@
     font-weight: bold; color: var(--accent-info, #00d4ff);
     margin-top: 8px; margin-bottom: 2px; font-size: 0.84rem;
 }
+/* P28-B: YARAツリー折りたたみ */
+.ym-tree-cat.collapsed .ym-tree-cat-files { display: none; }
+.ym-tree-cat-toggle { display: inline-block; width: 16px; transition: transform 0.2s; }
+.ym-tree-cat.collapsed .ym-tree-cat-toggle { transform: rotate(-90deg); }
+#tab-yaramgr.active { display: flex !important; }
+
 </style>
 </head>
 <body>
@@ -398,7 +404,10 @@
                 <span class="sidebar-item-icon">📂</span>
                 <span class="sidebar-item-text">ファイル検査</span>
             </div>
-
+            <div class="sidebar-item" data-tab="yaramgr" onclick="switchTab('yaramgr', this)">
+                <span class="sidebar-item-icon">🛡️</span>
+                <span class="sidebar-item-text">YARA管理</span>
+            </div>
             <div class="sidebar-divider"></div>
             <div class="sidebar-section-label">管理</div>
             <div class="sidebar-item" data-tab="important" onclick="switchTab('important', this)">
@@ -1183,6 +1192,125 @@
                 </div>
             </div>
 
+            <!-- ===== P28-B: YARA管理・検査タブ ===== -->
+            <div id="tab-yaramgr" aria-label="YARA管理・検査" class="card" style="flex-direction:column; height:calc(100vh - 70px);">
+               <!-- ステータスバー -->
+                <div id="ym-status-bar" style="padding:8px 16px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--border-primary); font-size:0.85rem;">
+                    <span class="cell-sub">YARA: <strong id="ym-version">--</strong></span>
+                    <span class="cell-sub">ルール数: <strong id="ym-rule-count">--</strong></span>
+                    <span class="cell-sub">コンパイル: <strong id="ym-compile-status">--</strong></span>
+                    <span class="cell-sub">最終更新: <strong id="ym-last-update">--</strong></span>
+                    <button class="filter-btn" onclick="ymCompile()" style="margin-left:auto;">⚡ コンパイル</button>
+                    <button class="filter-btn" onclick="ymRefresh()">🔄 更新</button>
+                </div>
+
+                <!-- メインレイアウト: 左ツリー + 右ペイン -->
+                <div style="display:flex; flex:1; overflow:hidden; border-bottom:1px solid var(--border-primary);">
+
+                    <!-- 左ペイン: ルールツリー -->
+                    <div id="ym-tree-pane" style="width:280px; min-width:200px; border-right:1px solid var(--border-primary); overflow-y:auto; padding:8px;">
+                        <div style="display:flex; gap:4px; margin-bottom:8px;">
+                            <input type="text" id="ym-tree-search" class="search-input" placeholder="ルール検索..." onkeyup="ymTreeFilter()" style="flex:1; padding:6px 8px; font-size:0.85rem;">
+                        </div>
+                        <div id="ym-tree" style="font-size:0.85rem;"></div>
+                        <div style="padding:8px 0; display:flex; gap:4px; flex-wrap:wrap; border-top:1px solid var(--border-primary); margin-top:8px;">
+                            <button class="filter-btn" onclick="ymBrowseImport()" title="フォルダからインポート">📥 取込</button>
+                            <button class="filter-btn" onclick="ymShowCreate()" title="新規ルール作成">➕ 新規</button>
+                        </div>
+                    </div>
+
+                    <!-- 右ペイン: サブタブ切替 -->
+                    <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+                        <div style="display:flex; gap:0; border-bottom:1px solid var(--border-primary);">
+                            <button class="memdump-subtab active" data-ymtab="detail" onclick="ymSwitchTab('detail', this)">📄 ルール詳細</button>
+                            <button class="memdump-subtab" data-ymtab="search" onclick="ymSwitchTab('search', this)">🔍 検索</button>
+                            <button class="memdump-subtab" data-ymtab="scan" onclick="ymSwitchTab('scan', this)">⚡ 手動スキャン</button>
+                            <button class="memdump-subtab" data-ymtab="github" onclick="ymSwitchTab('github', this)">📥 GitHub取込</button>
+                        </div>
+
+                        <!-- サブタブ: ルール詳細/編集 -->
+                        <div id="ym-sub-detail" class="ym-subpane" style="flex:1; display:flex; flex-direction:column; overflow:hidden; padding:12px;">
+                            <div id="ym-detail-placeholder" class="cell-sub" style="text-align:center; padding:40px;">
+                                左のツリーからルールファイルを選択してください
+                            </div>
+                            <div id="ym-detail-content" style="display:none; flex:1; flex-direction:column;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span id="ym-detail-filename" style="font-weight:bold; font-size:1rem;"></span>
+                                    <div style="display:flex; gap:4px;">
+                                        <button class="filter-btn" onclick="ymSaveRule()">💾 保存</button>
+                                        <button class="filter-btn" onclick="ymDeleteRule()" style="border-color:var(--accent-error); color:var(--accent-error);">🗑 削除</button>
+                                    </div>
+                                </div>
+                                <textarea id="ym-detail-editor" style="width:100%; height:calc(100vh - 220px); background:#1e1e2e; color:#d4d4d4; border:1px solid var(--border-primary); border-radius:4px; padding:8px; font-family:var(--font-mono); font-size:0.85rem; resize:vertical; tab-size:4;"></textarea>
+                                <div id="ym-detail-meta" style="margin-top:8px; font-size:0.85rem;" class="cell-sub"></div>
+                            </div>
+                        </div>
+
+                        <!-- サブタブ: 検索 -->
+                        <div id="ym-sub-search" class="ym-subpane" style="flex:1; overflow-y:auto; padding:12px; display:none;">
+                            <div style="display:flex; gap:8px; margin-bottom:12px;">
+                                <input type="text" id="ym-search-query" class="search-input" placeholder="ルール名、タグ、metaテキストで検索..." style="flex:1;" onkeydown="if(event.key==='Enter')ymSearch()">
+                                <button class="filter-btn" onclick="ymSearch()">🔍 検索</button>
+                            </div>
+                            <div id="ym-search-results"></div>
+                        </div>
+
+                        <!-- サブタブ: 手動スキャン -->
+                        <div id="ym-sub-scan" class="ym-subpane" style="flex:1; overflow-y:auto; padding:12px; display:none;">
+                            <div class="guide-box">
+                                <span class="guide-title">⚡ 手動YARAスキャン</span>
+                                ファイルまたはフォルダを指定して、コンパイル済みYARAルールでスキャンします。
+                            </div>
+                            <div style="display:flex; gap:8px; margin:12px 0; align-items:center;">
+                                <input type="text" id="ym-scan-target" class="search-input" placeholder="スキャン対象のパスを入力..." style="flex:1;">
+                                <button class="filter-btn" onclick="ymBrowseScanTarget()">📁 参照</button>
+                                <button class="filter-btn" onclick="ymRunScan()" style="border-color:var(--accent-error); color:var(--accent-error); font-weight:bold;">⚡ スキャン実行</button>
+                            </div>
+                            <div id="ym-scan-status" class="cell-sub" style="margin-bottom:8px;"></div>
+                            <div id="ym-scan-results"></div>
+                        </div>
+
+                        <!-- サブタブ: GitHub取込 -->
+                        <div id="ym-sub-github" class="ym-subpane" style="flex:1; overflow-y:auto; padding:12px; display:none;">
+                            <div class="guide-box">
+                                <span class="guide-title">📥 GitHubからYARAルール取込</span>
+                                公開リポジトリからYARAルールセットをダウンロードしてインポートします。重複ルールは自動的にスキップされます。
+                            </div>
+                            <div id="ym-presets" style="margin:12px 0;"></div>
+                            <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--border-primary);">
+                                <div style="font-weight:bold; margin-bottom:8px;">カスタムURL</div>
+                                <div style="display:flex; gap:8px;">
+                                    <input type="text" id="ym-github-url" class="search-input" placeholder="https://github.com/user/repo.git" style="flex:1;">
+                                    <input type="text" id="ym-github-name" class="search-input" placeholder="カテゴリ名" style="width:120px;">
+                                    <button class="filter-btn" onclick="ymDownloadCustom()">📥 取込</button>
+                                </div>
+                            </div>
+                            <div id="ym-github-status" class="cell-sub" style="margin-top:12px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 新規作成モーダル -->
+                <div id="ym-create-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; display:none; align-items:center; justify-content:center;">
+                    <div style="background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px; padding:20px; width:90%; max-width:500px;">
+                        <div style="font-weight:bold; font-size:1.1rem; margin-bottom:12px;">➕ 新規YARAルール作成</div>
+                        <div style="margin-bottom:8px;">
+                            <label class="cell-sub">カテゴリ</label>
+                            <select id="ym-create-category" style="width:100%; padding:8px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border-primary); border-radius:4px; margin-top:4px;">
+                                <option value="custom">custom</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom:8px;">
+                            <label class="cell-sub">ファイル名</label>
+                            <input type="text" id="ym-create-name" class="search-input" placeholder="my_rule.yar" style="width:100%; margin-top:4px;">
+                        </div>
+                        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+                            <button class="filter-btn" onclick="ymHideCreate()">キャンセル</button>
+                            <button class="filter-btn" onclick="ymCreateRule()" style="border-color:var(--accent-success); color:var(--accent-success);">作成</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
         </div><!-- /content-wrapper -->
     </div><!-- /main-content -->
@@ -5101,6 +5229,277 @@ function _pollScanStatus() {
     });
 }
 
+
+
+// ================================================================
+// P28-B: YARA管理・検査タブ JavaScript
+// ================================================================
+var _ymTree = [];
+var _ymCurrentFile = null;
+
+function ymInit() { ymLoadStatus(); ymLoadTree(); }
+function ymRefresh() { ymLoadStatus(); ymLoadTree(); }
+
+function ymLoadStatus() {
+    fetch('/api/yara/status').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'ok') {
+            document.getElementById('ym-version').textContent = res.version || 'N/A';
+            document.getElementById('ym-rule-count').textContent = res.rule_files || 0;
+            document.getElementById('ym-compile-status').textContent = res.compiled ? '済' : '未';
+            document.getElementById('ym-compile-status').style.color = res.compiled ? 'var(--accent-success)' : 'var(--accent-warning)';
+        }
+    });
+}
+
+function ymCompile() {
+    document.getElementById('ym-compile-status').textContent = '処理中...';
+    fetch('/api/yara/compile', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+            document.getElementById('ym-compile-status').textContent = '済 (' + res.compiled_files + '件)';
+            document.getElementById('ym-compile-status').style.color = 'var(--accent-success)';
+            if (res.skipped_files > 0) alert('コンパイル完了: ' + res.compiled_files + '件成功, ' + res.skipped_files + '件スキップ');
+        } else {
+            document.getElementById('ym-compile-status').textContent = 'エラー';
+            document.getElementById('ym-compile-status').style.color = 'var(--accent-error)';
+            alert('コンパイルエラー: ' + (res.error || ''));
+        }
+    });
+}
+
+function ymLoadTree() {
+    fetch('/api/yara/tree').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'ok') { _ymTree = res.tree; ymRenderTree(_ymTree); }
+    });
+}
+
+function ymRenderTree(tree) {
+    var el = document.getElementById('ym-tree');
+    var html = '';
+    for (var i = 0; i < tree.length; i++) {
+        var cat = tree[i];
+        if (cat.files.length === 0) continue;
+        html += '<div class="ym-tree-cat">';
+        html += '<div onclick="this.parentElement.classList.toggle(\'collapsed\')" style="cursor:pointer; padding:4px 0; font-weight:bold; color:var(--accent-primary);"><span class="ym-tree-cat-toggle">\u25BC</span> ';
+        html += cat.category + ' <span class="cell-sub">(' + cat.files.length + ')</span></div>';
+        html += '<div class="ym-tree-cat-files" style="padding-left:16px;">';
+        for (var j = 0; j < cat.files.length; j++) {
+            var f = cat.files[j];
+            var fp = f.filepath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            html += '<div onclick="ymSelectFile(\'' + fp + '\')" style="cursor:pointer; padding:3px 4px; border-radius:4px; font-size:0.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" ';
+            html += 'onmouseover="this.style.background=\'var(--bg-hover)\'" onmouseout="this.style.background=\'\'">';
+            html += '\u{1F4C4} ' + f.filename + ' <span class="cell-sub">(' + f.rule_count + ')</span></div>';
+        }
+        html += '</div></div>';
+    }
+    el.innerHTML = html || '<div class="cell-sub" style="padding:12px;">ルールがありません</div>';
+}
+
+function ymTreeFilter() {
+    var q = document.getElementById('ym-tree-search').value.toLowerCase();
+    if (!q) { ymRenderTree(_ymTree); return; }
+    var filtered = [];
+    for (var i = 0; i < _ymTree.length; i++) {
+        var cat = _ymTree[i];
+        var files = [];
+        for (var j = 0; j < cat.files.length; j++) {
+            var f = cat.files[j];
+            if (f.filename.toLowerCase().indexOf(q) >= 0 || f.rule_names.join(' ').toLowerCase().indexOf(q) >= 0) files.push(f);
+        }
+        if (files.length > 0) filtered.push({ category: cat.category, path: cat.path, files: files });
+    }
+    ymRenderTree(filtered);
+}
+
+function ymSelectFile(filepath) {
+    _ymCurrentFile = filepath;
+    fetch('/api/yara/rule/content', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({filepath: filepath})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+            document.getElementById('ym-detail-placeholder').style.display = 'none';
+            document.getElementById('ym-detail-content').style.display = 'flex';
+            document.getElementById('ym-detail-filename').textContent = res.filename;
+            document.getElementById('ym-detail-editor').value = res.content;
+            document.getElementById('ym-detail-meta').textContent = '\u30D1\u30B9: ' + filepath;
+        } else { alert('\u8AAD\u307F\u8FBC\u307F\u30A8\u30E9\u30FC: ' + (res.error || '')); }
+    });
+    ymSwitchTab('detail', document.querySelector('[data-ymtab="detail"]'));
+}
+
+function ymSaveRule() {
+    if (!_ymCurrentFile) return;
+    var content = document.getElementById('ym-detail-editor').value;
+    fetch('/api/yara/rule/save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({filepath: _ymCurrentFile, content: content})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) alert('\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002\u518D\u30B3\u30F3\u30D1\u30A4\u30EB\u3057\u3066\u304F\u3060\u3055\u3044\u3002');
+        else alert('\u4FDD\u5B58\u30A8\u30E9\u30FC: ' + (res.error || ''));
+    });
+}
+
+function ymDeleteRule() {
+    if (!_ymCurrentFile) return;
+    if (!confirm('\u3053\u306E\u30EB\u30FC\u30EB\u30D5\u30A1\u30A4\u30EB\u3092\u524A\u9664\u3057\u307E\u3059\u304B\uFF1F\n' + _ymCurrentFile)) return;
+    fetch('/api/yara/delete', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({filepath: _ymCurrentFile})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+            _ymCurrentFile = null;
+            document.getElementById('ym-detail-content').style.display = 'none';
+            document.getElementById('ym-detail-placeholder').style.display = 'block';
+            ymLoadTree(); ymLoadStatus();
+        } else { alert('\u524A\u9664\u30A8\u30E9\u30FC: ' + (res.error || '')); }
+    });
+}
+
+function ymSwitchTab(id, el) {
+    document.querySelectorAll('.ym-subpane').forEach(function(p) { p.style.display = 'none'; });
+    document.querySelectorAll('[data-ymtab]').forEach(function(b) { b.classList.remove('active'); });
+    document.getElementById('ym-sub-' + id).style.display = 'block';
+    if (el) el.classList.add('active');
+}
+
+function ymSearch() {
+    var query = document.getElementById('ym-search-query').value.trim();
+    if (!query) return;
+    var el = document.getElementById('ym-search-results');
+    el.innerHTML = '<div class="cell-sub">\u691C\u7D22\u4E2D...</div>';
+    fetch('/api/yara/search', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({query: query})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.results && res.results.length > 0) {
+            var html = '<div class="cell-sub" style="margin-bottom:8px;">' + res.results.length + '\u4EF6\u306E\u30D5\u30A1\u30A4\u30EB\u3067\u30DE\u30C3\u30C1</div>';
+            for (var i = 0; i < res.results.length; i++) {
+                var r2 = res.results[i];
+                var fp = r2.filepath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                html += '<div style="padding:8px; margin-bottom:4px; border:1px solid var(--border-primary); border-radius:4px; cursor:pointer;" onclick="ymSelectFile(\'' + fp + '\')">';
+                html += '<div style="font-weight:bold;">\u{1F4C4} ' + r2.filename + ' <span class="cell-sub">(' + r2.match_count + '\u4EF6)</span></div>';
+                html += '<div class="cell-sub" style="font-size:0.8rem;">' + r2.relative + '</div>';
+                for (var j = 0; j < Math.min(r2.matches.length, 3); j++) {
+                    html += '<div style="font-size:0.8rem; padding:2px 0; font-family:var(--font-mono);">L' + r2.matches[j].line_number + ': ' + r2.matches[j].line.substring(0, 100) + '</div>';
+                }
+                html += '</div>';
+            }
+            el.innerHTML = html;
+        } else { el.innerHTML = '<div class="cell-sub">\u4E00\u81F4\u3059\u308B\u30EB\u30FC\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F</div>'; }
+    });
+}
+
+function ymBrowseScanTarget() {
+    fetch('/api/fileinspect/browse').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'ok' && res.folder) document.getElementById('ym-scan-target').value = res.folder;
+    });
+}
+
+function ymRunScan() {
+    var target = document.getElementById('ym-scan-target').value.trim();
+    if (!target) { alert('\u30B9\u30AD\u30E3\u30F3\u5BFE\u8C61\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+    var statusEl = document.getElementById('ym-scan-status');
+    var resultEl = document.getElementById('ym-scan-results');
+    statusEl.textContent = '\u30B9\u30AD\u30E3\u30F3\u4E2D...';
+    resultEl.innerHTML = '';
+    fetch('/api/yara/scan/manual', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({target: target})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'ok') {
+            statusEl.innerHTML = '\u30B9\u30AD\u30E3\u30F3\u5B8C\u4E86: <strong>' + res.scanned + '</strong>\u4EF6, <strong style="color:' + (res.matched > 0 ? 'var(--accent-error)' : 'var(--accent-success)') + '">' + res.matched + '</strong>\u4EF6\u691C\u51FA';
+            if (res.results && res.results.length > 0) {
+                var html = '<table style="width:100%; margin-top:8px;"><thead><tr><th>\u30D5\u30A1\u30A4\u30EB</th><th>\u30DE\u30C3\u30C1\u30EB\u30FC\u30EB</th><th>\u30BF\u30B0</th></tr></thead><tbody>';
+                for (var i = 0; i < res.results.length; i++) {
+                    var r2 = res.results[i];
+                    for (var j = 0; j < r2.matches.length; j++) {
+                        var m = r2.matches[j];
+                        html += '<tr style="color:var(--accent-error);"><td style="font-family:var(--font-mono); font-size:0.82rem;">' + (r2.relative || r2.filename) + '</td>';
+                        html += '<td><strong>' + m.rule + '</strong></td><td>' + (m.tags ? m.tags.join(', ') : '') + '</td></tr>';
+                    }
+                }
+                html += '</tbody></table>';
+                resultEl.innerHTML = html;
+            }
+        } else { statusEl.textContent = '\u30A8\u30E9\u30FC: ' + (res.message || res.error || ''); }
+    }).catch(function(e) { statusEl.textContent = '\u901A\u4FE1\u30A8\u30E9\u30FC'; });
+}
+
+function ymLoadPresets() {
+    fetch('/api/yara/presets').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.presets) {
+            var html = '';
+            for (var i = 0; i < res.presets.length; i++) {
+                var p = res.presets[i];
+                html += '<div style="padding:10px; margin-bottom:8px; border:1px solid var(--border-primary); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">';
+                html += '<div><div style="font-weight:bold;">' + p.name + (p.recommended ? ' <span style="color:var(--accent-success);">\u2605\u63A8\u5968</span>' : '') + '</div>';
+                html += '<div class="cell-sub" style="font-size:0.82rem;">' + p.description + '</div></div>';
+                var purl = p.url.replace(/'/g, "\\'");
+                var pname = p.name.split('/')[1] || p.name;
+                html += '<button class="filter-btn" onclick="ymDownloadPreset(\'' + purl + '\', \'' + pname + '\')">\u{1F4E5} \u53D6\u8FBC</button></div>';
+            }
+            document.getElementById('ym-presets').innerHTML = html;
+        }
+    });
+}
+
+function ymDownloadPreset(url, name) {
+    if (!confirm(name + ' \u3092\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9\u3057\u3066\u30A4\u30F3\u30DD\u30FC\u30C8\u3057\u307E\u3059\u304B\uFF1F')) return;
+    document.getElementById('ym-github-status').textContent = '\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9\u4E2D...';
+    fetch('/api/yara/download', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({url: url, name: name})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+            document.getElementById('ym-github-status').innerHTML = '\u53D6\u8FBC\u5B8C\u4E86: <strong>' + res.imported + '</strong>\u4EF6, ' + res.skipped_duplicates + '\u4EF6\u30B9\u30AD\u30C3\u30D7';
+            ymLoadTree(); ymLoadStatus();
+        } else { document.getElementById('ym-github-status').textContent = '\u30A8\u30E9\u30FC: ' + (res.error || ''); }
+    });
+}
+
+function ymDownloadCustom() {
+    var url = document.getElementById('ym-github-url').value.trim();
+    var name = document.getElementById('ym-github-name').value.trim() || 'custom_import';
+    if (!url) { alert('URL\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+    ymDownloadPreset(url, name);
+}
+
+function ymBrowseImport() {
+    fetch('/api/yara/browse').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.status === 'ok' && res.folder) {
+            if (!confirm(res.folder + ' \u304B\u3089\u30A4\u30F3\u30DD\u30FC\u30C8\u3057\u307E\u3059\u304B\uFF1F')) return;
+            fetch('/api/yara/import', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({source: res.folder, category: 'imported'})
+            }).then(function(r2) { return r2.json(); }).then(function(res2) {
+                if (res2.success) { alert('\u30A4\u30F3\u30DD\u30FC\u30C8\u5B8C\u4E86: ' + res2.imported + '\u4EF6'); ymLoadTree(); ymLoadStatus(); }
+                else { alert('\u30A8\u30E9\u30FC: ' + (res2.error || '')); }
+            });
+        }
+    });
+}
+
+function ymShowCreate() { document.getElementById('ym-create-modal').style.display = 'flex'; }
+function ymHideCreate() { document.getElementById('ym-create-modal').style.display = 'none'; }
+
+function ymCreateRule() {
+    var cat = document.getElementById('ym-create-category').value;
+    var name = document.getElementById('ym-create-name').value.trim();
+    if (!name) { alert('\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+    fetch('/api/yara/rule/create', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({category: cat, name: name})
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) { ymHideCreate(); ymLoadTree(); ymLoadStatus(); setTimeout(function() { ymSelectFile(res.filepath); }, 500); }
+        else { alert('\u4F5C\u6210\u30A8\u30E9\u30FC: ' + (res.error || '')); }
+    });
+}
+
+var _origSwitchTab2 = switchTab;
+switchTab = function(id, el) {
+    _origSwitchTab2(id, el);
+    if (id === 'yaramgr') { ymInit(); ymLoadPresets(); }
+};
 
 </script>
 

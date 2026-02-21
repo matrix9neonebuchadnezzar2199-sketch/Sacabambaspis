@@ -644,6 +644,96 @@ def yara_browse():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+
+# ================================================================
+# P28-A: YARA管理・検査タブ用 API
+# ================================================================
+
+@app.route('/api/yara/tree')
+def yara_tree():
+    try:
+        tree = _yara_manager.get_rule_tree()
+        return jsonify({"status": "ok", "tree": tree})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/rule/content', methods=['POST'])
+def yara_rule_content():
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    if not filepath:
+        return jsonify({"status": "error", "message": "filepath is required"})
+    try:
+        result = _yara_manager.get_rule_content(filepath)
+        return jsonify({"status": "ok" if result.get('success') else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/rule/save', methods=['POST'])
+def yara_rule_save():
+    data = request.get_json()
+    filepath = data.get('filepath', '')
+    content = data.get('content', '')
+    if not filepath or not content:
+        return jsonify({"status": "error", "message": "filepath and content are required"})
+    try:
+        result = _yara_manager.save_rule_content(filepath, content)
+        return jsonify({"status": "ok" if result.get('success') else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/rule/create', methods=['POST'])
+def yara_rule_create():
+    data = request.get_json()
+    category = data.get('category', 'custom')
+    name = data.get('name', '')
+    content = data.get('content', None)
+    if not name:
+        return jsonify({"status": "error", "message": "name is required"})
+    try:
+        result = _yara_manager.create_rule(category, name, content)
+        return jsonify({"status": "ok" if result.get('success') else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/search', methods=['POST'])
+def yara_search():
+    data = request.get_json()
+    query = data.get('query', '')
+    if not query:
+        return jsonify({"status": "ok", "results": []})
+    try:
+        results = _yara_manager.search_rules(query)
+        return jsonify({"status": "ok", "results": results})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/scan/manual', methods=['POST'])
+def yara_scan_manual():
+    data = request.get_json()
+    target = data.get('target', '')
+    if not target:
+        return jsonify({"status": "error", "message": "target is required"})
+    try:
+        if os.path.isdir(target):
+            result = _yara_manager.scan_directory(target)
+        elif os.path.isfile(target):
+            scan = _yara_manager.scan_file(target)
+            result = {"scanned": 1, "matched": 1 if scan.get("matches") else 0, "errors": 0, "results": [{"filepath": target, "filename": os.path.basename(target), "matches": scan.get("matches", [])}] if scan.get("matches") else []}
+        else:
+            return jsonify({"status": "error", "message": "対象が見つかりません"})
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/yara/presets')
+def yara_presets():
+    try:
+        presets = _yara_manager.get_presets()
+        return jsonify({"status": "ok", "presets": presets})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 # --- メインロジック ---
 def save_report(data):
     if not os.path.exists(LOG_DIR):
