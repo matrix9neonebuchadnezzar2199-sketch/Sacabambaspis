@@ -325,6 +325,181 @@
 #tab-yaramgr.active { display: flex !important; }
 
 </style>
+<style>
+/* ========== Wiki Modal Styles ========== */
+.wiki-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.wiki-modal-overlay.open {
+    display: flex;
+}
+.wiki-modal {
+    width: 92vw;
+    height: 88vh;
+    max-width: 1200px;
+    background: var(--bg-secondary, #141414);
+    border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.wiki-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color, rgba(255,255,255,0.08));
+    background: var(--bg-tertiary, #1a1a1a);
+}
+.wiki-modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary, #fff);
+}
+.wiki-modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #a1a1a1);
+    font-size: 22px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+.wiki-modal-close:hover {
+    background: var(--bg-hover, rgba(255,255,255,0.08));
+    color: var(--text-primary, #fff);
+}
+.wiki-modal-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+.wiki-sidebar {
+    width: 280px;
+    min-width: 280px;
+    border-right: 1px solid var(--border-color, rgba(255,255,255,0.08));
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary, #0c0c0c);
+}
+.wiki-search-box {
+    padding: 12px;
+    border-bottom: 1px solid var(--border-color, rgba(255,255,255,0.08));
+}
+.wiki-search-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-input, rgba(255,255,255,0.05));
+    border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+    border-radius: 6px;
+    color: var(--text-primary, #fff);
+    font-size: 13px;
+}
+.wiki-search-input::placeholder {
+    color: var(--text-muted, #6b6b6b);
+}
+.wiki-search-input:focus {
+    outline: none;
+    border-color: var(--accent-primary, #a78bfa);
+}
+.wiki-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+.wiki-tree-category {
+    padding: 8px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted, #6b6b6b);
+    letter-spacing: 0.5px;
+}
+.wiki-tree-item {
+    padding: 7px 16px 7px 24px;
+    font-size: 13px;
+    color: var(--text-secondary, #a1a1a1);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: all 0.15s ease;
+}
+.wiki-tree-item:hover {
+    background: var(--bg-hover, rgba(255,255,255,0.08));
+    color: var(--text-primary, #fff);
+}
+.wiki-tree-item.active {
+    background: var(--bg-active, rgba(167,139,250,0.15));
+    color: var(--text-accent, #a78bfa);
+    border-left-color: var(--accent-primary, #a78bfa);
+}
+.wiki-article {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+}
+.wiki-article-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary, #fff);
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--accent-primary, #a78bfa);
+}
+.wiki-article-section {
+    margin-bottom: 20px;
+}
+.wiki-section-heading {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-accent, #a78bfa);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.wiki-section-body {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-secondary, #a1a1a1);
+    white-space: pre-wrap;
+}
+.wiki-section-body.flow-danger {
+    background: rgba(248,113,113,0.08);
+    border-left: 3px solid var(--accent-error, #f87171);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+}
+.wiki-section-body.flow-safe {
+    background: rgba(74,222,128,0.08);
+    border-left: 3px solid var(--accent-success, #4ade80);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+}
+.wiki-section-body.mitre-box {
+    background: rgba(167,139,250,0.08);
+    border-left: 3px solid var(--accent-primary, #a78bfa);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+}
+.wiki-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted, #6b6b6b);
+    font-size: 16px;
+}
+</style>
+
 </head>
 <body>
 <a class="skip-nav" href="#main-content">メインコンテンツへスキップ</a>
@@ -450,6 +625,7 @@
                 <span class="threat-level-badge" id="threat-level-badge">--</span>
                 <button class="threat-detail-btn" onclick="toggleThreatDetail()" data-tooltip="検知サマリー詳細">📊</button>
             </div>
+            <button class="header-settings-btn" onclick="openWikiModal()" title="アルゴリズム解説">&#x1F4D6;</button>
             <button class="header-settings-btn" onclick="toggleSettings()" title="表示設定">🎨</button>
             <button class="header-settings-btn" onclick="if(confirm('サーバーを終了しますか？')){fetch('/api/shutdown',{method:'POST'}).then(function(){document.title='終了しました';document.body.innerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:24px;&quot;>サーバーを終了しました。このタブを閉じてください。</div>';})}" title="サーバー終了" style="color:var(--accent-error);">⏻</button>
             </div>
@@ -5520,6 +5696,58 @@ switchTab = function(id, el) {
         </div>
     </div>
 </div>
+
+
+<!-- ========== Wiki Modal ========== -->
+<div class="wiki-modal-overlay" id="wiki-modal-overlay" onclick="if(event.target===this)closeWikiModal()">
+    <div class="wiki-modal">
+        <div class="wiki-modal-header">
+            <span class="wiki-modal-title">&#x1F4D6; アルゴリズム解説 Wiki</span>
+            <button class="wiki-modal-close" onclick="closeWikiModal()">&#x2715;</button>
+        </div>
+        <div class="wiki-modal-body">
+            <div class="wiki-sidebar">
+                <div class="wiki-search-box">
+                    <input type="text" class="wiki-search-input" id="wiki-search-input" placeholder="記事を検索..." oninput="wikiFilterTree(this.value)">
+                </div>
+                <div class="wiki-tree" id="wiki-tree"></div>
+            </div>
+            <div class="wiki-article" id="wiki-article">
+                <div class="wiki-placeholder">&#x2190; 左のツリーから記事を選択してください</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/wiki/wiki-data.js"></script>
+<script src="/static/wiki/wiki-loader.js"></script>
+<script>
+function openWikiModal() {
+    var overlay = document.getElementById('wiki-modal-overlay');
+    overlay.classList.add('open');
+    if (typeof wikiInit === 'function') {
+        wikiInit();
+    }
+}
+function closeWikiModal() {
+    var overlay = document.getElementById('wiki-modal-overlay');
+    overlay.classList.remove('open');
+}
+function wikiFilterTree(query) {
+    if (typeof filterTree === 'function') {
+        filterTree(query);
+    }
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var overlay = document.getElementById('wiki-modal-overlay');
+        if (overlay && overlay.classList.contains('open')) {
+            closeWikiModal();
+        }
+    }
+});
+</script>
+
 
 </body>
 </html>
