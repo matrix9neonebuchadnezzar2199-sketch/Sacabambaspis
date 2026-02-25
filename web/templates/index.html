@@ -574,6 +574,18 @@
 .imp-hover-backdrop.visible { display: block; }
 
 
+
+/* --- P33: パスハイライト --- */
+.hl-path {
+    background: rgba(255, 213, 79, 0.15);
+    color: #ffd54f;
+    padding: 1px 3px;
+    border-radius: 3px;
+    font-family: Consolas, monospace;
+    font-size: 0.9em;
+    border-bottom: 1px dashed rgba(255, 213, 79, 0.4);
+}
+
 /* --- P32: ヒストグラム高性能化 --- */
 .hist-date-picker { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; }
 .hist-date-picker input[type="date"] {
@@ -1643,6 +1655,18 @@ const CAT_CONFIG = {
     'Network':  { label: 'Network', class: 'tag-net' },
     'Persistence': { label: 'Startup', class: 'tag-dang' }
 };
+
+function highlightPaths(text) {
+    if (!text) return '';
+    // Windows paths: C:\xxx\yyy.ext or \\server\share
+    // Unix paths: /xxx/yyy.ext
+    // Filenames with extensions: something.exe, file.dll, doc.pdf etc.
+    var pathRegex = /(?:[A-Za-z]:\\\\[^\s,;'"<>]+|\\\\\\\\[^\s,;'"<>]+|\/(?:usr|etc|var|tmp|home|opt|bin|sbin|dev|proc|sys|mnt|root)[^\s,;'"<>]*|[A-Za-z0-9_\-\.]+\.(?:exe|dll|sys|bat|cmd|ps1|vbs|js|msi|scr|com|pif|hta|cpl|inf|reg|lnk|doc|docx|xls|xlsx|ppt|pptx|pdf|zip|rar|7z|tar|gz|iso|img|log|txt|csv|xml|json|html|htm|php|asp|aspx|jsp|py|rb|sh|conf|cfg|ini|dat|db|sqlite|evtx|etl|dmp|pcap|cap))/gi;
+    return text.replace(pathRegex, function(match) {
+        return '<span class="hl-path">' + match + '</span>';
+    });
+}
+
 const CAT_COLORS = {
     'EventLog': '#4fc3f7', 'Process': '#ef5350', 'Evidence': '#ab47bc',
     'Network': '#66bb6a', 'Persistence': '#ffa726', 'Other': '#78909c'
@@ -1774,11 +1798,44 @@ function updateDashboard(data) {
     allData = data;
     var scanKey = data.system.hostname + '_' + data.system.scan_time;
     var prevKey = localStorage.getItem('saca-last-scan-key');
-    if (prevKey !== scanKey) {
-        importantItems.clear();
-        saveImportantToStorage();
-        updateImportantBadge();
+
+    /* --- 全状態リセット --- */
+    importantItems.clear();
+    saveImportantToStorage();
+    safeConfirmedItems.clear();
+    saveSafeToStorage();
+    histDateStart = null;
+    histDateEnd = null;
+    clickedBarDay = null;
+    selfFilter = false;
+    dangerFilter = false;
+    warningFilter = false;
+    hideSafeFilter = false;
+    safeConfirmedFilter = false;
+    selection = { start: null, end: null, active: false };
+    _impDataMap = {};
+    /* フィルタボタンUI初期化 */
+    var btnMap = {
+        'btn-self': '🐟 自己除外 (OFF)',
+        'btn-danger': '🔴 危険のみ (OFF)',
+        'btn-warning': '🟡 警告のみ (OFF)',
+        'btn-hide-safe': '🟢 正常を非表示 (OFF)',
+        'btn-safe-confirmed': '✅ 安全確認済み除外 (OFF)'
+    };
+    for (var bid in btnMap) {
+        var bel = document.getElementById(bid);
+        if (bel) { bel.textContent = btnMap[bid]; bel.classList.remove('active'); }
     }
+    /* 日時ピッカーUI初期化 */
+    var ds = document.getElementById('hist-date-start');
+    var de = document.getElementById('hist-date-end');
+    if (ds) ds.value = '';
+    if (de) de.value = '';
+    /* 選択情報非表示 */
+    var si = document.getElementById('selection-info');
+    if (si) si.style.display = 'none';
+    updateImportantBadge();
+
     localStorage.setItem('saca-last-scan-key', scanKey);
     document.getElementById('host-display').textContent = data.system.hostname + ' (' + data.system.scan_time + ')';
 
@@ -1930,7 +1987,7 @@ function renderImportantTab() {
 
         var tabLabel = getTabLabel(tab);
         var name = d.name || d.exe_name || d.artifact || d.program_name || d.app_name || d.process || d.id || d.pid || '-';
-        var reason = d.reason || d.desc || '';
+        var reason = d.message || d.reason || d.desc || '';
         var time = d.time || d.timestamp || '';
 
         // キーワード絞り込み
@@ -1952,7 +2009,7 @@ function renderImportantTab() {
         html += '<td><button class="safe-toggle-btn ' + safeClass + '" onclick="toggleSafeByKey(\'' + escapedKey + '\')">' + safeLabel + '</button></td>';
         html += '<td><span class="tag tag-evid">' + tabLabel + '</span></td>';
         html += '<td>' + name + '</td>';
-        html += '<td class="cell-reason">' + (reason ? '⚠️ ' + reason : '') + '</td>';
+        html += '<td class="cell-reason">' + (reason ? '⚠️ ' + highlightPaths(reason) : '') + '</td>';
         html += '<td>' + time + '</td>';
         html += '<td class="' + cls(status) + '">' + statusJP(status) + '</td>';
         html += '</tr>';
