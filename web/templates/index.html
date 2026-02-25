@@ -573,6 +573,26 @@
 }
 .imp-hover-backdrop.visible { display: block; }
 
+
+/* --- P32: ヒストグラム高性能化 --- */
+.hist-date-picker { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; }
+.hist-date-picker input[type="date"] {
+    background: var(--bg-input, #1a1e24); color: var(--text-main, #e0e0e0);
+    border: 1px solid var(--border, #3a3f4b); border-radius: 4px;
+    padding: 2px 6px; font-size: 0.8rem; font-family: Consolas, monospace;
+}
+.hist-date-picker input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+.hist-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; font-size: 0.75rem; }
+.hist-legend-item { display: flex; align-items: center; gap: 3px; color: var(--text-sub, #8a9ab5); }
+.hist-legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.hist-bar-tooltip {
+    position: absolute; background: rgba(20,24,30,0.95); color: #e0e0e0;
+    border: 1px solid var(--accent, #64b5f6); border-radius: 6px;
+    padding: 8px 12px; font-size: 0.8rem; pointer-events: none;
+    z-index: 9999; white-space: pre-line; display: none;
+}
+.hist-bar-active { outline: 2px solid #fff; outline-offset: -1px; }
+
 </style>
 
 </head>
@@ -740,9 +760,14 @@
                 <div class="graph-header">
                     <div class="graph-controls">
                         <span class="graph-title">📅 アクティビティ・ヒストグラム</span>
-                        <button class="filter-btn" style="padding:2px 8px;font-size:0.8rem;" onclick="resetZoom()">リセット</button>
+                        <div class="hist-date-picker">
+                            <input type="date" id="hist-date-start" title="開始日" onchange="onHistDateChange()">
+                            <span style="color:var(--text-sub,#888);">～</span>
+                            <input type="date" id="hist-date-end" title="終了日" onchange="onHistDateChange()">
+                        </div>
+                        <button class="filter-btn" style="padding:2px 8px;font-size:0.8rem;" onclick="histReset()">リセット</button>
                     </div>
-                    <div class="cell-sub">ドラッグで期間選択 / ダブルクリックでリセット</div>
+                    <div class="hist-legend" id="hist-legend"></div>
                 </div>
                 <div id="timeline-container">
                     <canvas id="timeline-canvas"></canvas>
@@ -1618,6 +1643,77 @@ const CAT_CONFIG = {
     'Network':  { label: 'Network', class: 'tag-net' },
     'Persistence': { label: 'Startup', class: 'tag-dang' }
 };
+const CAT_COLORS = {
+    'EventLog': '#4fc3f7', 'Process': '#ef5350', 'Evidence': '#ab47bc',
+    'Network': '#66bb6a', 'Persistence': '#ffa726', 'Other': '#78909c'
+};
+let histDateStart = null, histDateEnd = null;
+let clickedBarDay = null;
+let stackedData = { days: [], data: {}, maxTotal: 0 };
+
+function getFilteredItems() {
+    var items = timelineItems;
+    if (selfFilter) items = items.filter(function(i){ return !i.is_self; });
+    if (dangerFilter) items = items.filter(function(i){ return i.status === 'DANGER'; });
+    if (warningFilter) items = items.filter(function(i){ return i.status === 'WARNING'; });
+    if (hideSafeFilter) items = items.filter(function(i){ return i.status !== 'SAFE' && i.status !== 'INFO'; });
+    if (safeConfirmedFilter) items = items.filter(function(i){ var uid = getItemKey('timeline', i); return !safeConfirmedItems.has(uid); });
+    var kw = document.getElementById('id-filter') ? document.getElementById('id-filter').value.toLowerCase() : '';
+    if (kw) items = items.filter(function(i){ return String(i.id).toLowerCase().indexOf(kw)!==-1 || (i.target&&i.target.toLowerCase().indexOf(kw)!==-1) || (i.reason&&i.reason.toLowerCase().indexOf(kw)!==-1); });
+    if (histDateStart) items = items.filter(function(i){ return i.ts >= histDateStart; });
+    if (histDateEnd) items = items.filter(function(i){ return i.ts <= histDateEnd; });
+    return items;
+}
+
+function toDayKey(ts) {
+    var d = new Date(ts);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function buildStackedBuckets(filtered) {
+    var dayMap = {};
+    var cats = Object.keys(CAT_COLORS);
+    filtered.forEach(function(item) {
+        var dk = toDayKey(item.ts);
+        if (!dayMap[dk]) {
+            dayMap[dk] = {};
+            cats.forEach(function(c){ dayMap[dk][c] = 0; });
+        }
+        var cat = item.cat || 'Other';
+        if (!dayMap[dk][cat]) dayMap[dk][cat] = 0;
+        dayMap[dk][cat]++;
+    });
+    var days = Object.keys(dayMap).sort();
+    var maxTotal = 0;
+    days.forEach(function(dk) {
+        var total = 0;
+        cats.forEach(function(c){ total += (dayMap[dk][c] || 0); });
+        if (total > maxTotal) maxTotal = total;
+    });
+    stackedData = { days: days, data: dayMap, maxTotal: maxTotal };
+    return stackedData;
+}
+
+function onHistDateChange() {
+    var s = document.getElementById('hist-date-start').value;
+    var e = document.getElementById('hist-date-end').value;
+    histDateStart = s ? new Date(s).getTime() : null;
+    histDateEnd = e ? new Date(e + 'T23:59:59').getTime() : null;
+    clickedBarDay = null;
+    applyAllFilters();
+}
+
+function histReset() {
+    document.getElementById('hist-date-start').value = '';
+    document.getElementById('hist-date-end').value = '';
+    histDateStart = null;
+    histDateEnd = null;
+    clickedBarDay = null;
+    selection = { start: null, end: null, active: false };
+    var info = document.getElementById('selection-info');
+    if (info) info.style.display = 'none';
+    applyAllFilters();
+}
 
 /* --- 初期化 --- */
 document.addEventListener('DOMContentLoaded', () => {
@@ -1695,9 +1791,11 @@ function updateDashboard(data) {
     processData();
     renderAll();
     setTimeout(() => {
+        if (!canvas) initGraph();
         if (canvas && canvas.parentElement) {
             canvas.width = canvas.parentElement.clientWidth;
             canvas.height = canvas.parentElement.clientHeight;
+            createBuckets();
             drawGraph();
         }
     }, 100);
@@ -2294,20 +2392,23 @@ function renderTableGeneric(id, data, keys, keyword, tab, rowFn) {
 
 
 /* --- フィルター --- */
-function filterAll() {
-    const keyword = document.getElementById('id-filter').value.toLowerCase();
-    let items = timelineItems;
-    if (selfFilter) items = items.filter(i => !i.is_self);
-    if (dangerFilter) items = items.filter(i => i.status === 'DANGER');
-    if (warningFilter) items = items.filter(i => i.status === 'WARNING');
-    if (hideSafeFilter) items = items.filter(i => i.status !== 'SAFE' && i.status !== 'INFO');
-    if (safeConfirmedFilter) items = items.filter(function(i) { var uid = getItemKey('timeline', i); return !safeConfirmedItems.has(uid); });
-    if (keyword) items = items.filter(i => String(i.id).toLowerCase().includes(keyword) || (i.target && i.target.toLowerCase().includes(keyword)) || (i.reason && i.reason.toLowerCase().includes(keyword)));
-    renderTimeline(items);
-    renderTables(keyword);
+function applyAllFilters() {
+    var filtered = getFilteredItems();
+    buildStackedBuckets(filtered);
+    buildLegend();
+    drawGraph();
+    var displayItems = clickedBarDay
+        ? filtered.filter(function(i){ return toDayKey(i.ts) === clickedBarDay; })
+        : filtered;
+    var kw = document.getElementById('id-filter') ? document.getElementById('id-filter').value.toLowerCase() : '';
+    renderTimeline(displayItems);
+    renderTables(kw);
     renderImportantTab();
     updateCounts();
+    updateImportantBadge();
 }
+
+function filterAll() { applyAllFilters(); }
 
 function toggleHideSafeFilter() {
     hideSafeFilter = !hideSafeFilter;
@@ -2475,14 +2576,9 @@ function updateCounts() {
 
 /* --- グラフ（タイムライン） --- */
 function createBuckets() {
-    const bucketCount = 100;
-    buckets = new Array(bucketCount).fill(0);
-    const range = timeRange.max - timeRange.min;
-    if (range <= 0) return;
-    timelineItems.forEach(item => {
-        const index = Math.floor(((item.ts - timeRange.min) / range) * (bucketCount - 1));
-        if (index >= 0 && index < bucketCount) buckets[index]++;
-    });
+    var filtered = getFilteredItems();
+    buildStackedBuckets(filtered);
+    buildLegend();
 }
 
 function initGraph() {
@@ -2516,7 +2612,69 @@ function initGraph() {
     });
     canvas.addEventListener('mouseup', finishSelection);
     canvas.addEventListener('mouseleave', () => { if (selection.active) finishSelection(); });
-    canvas.addEventListener('dblclick', resetZoom);
+    canvas.addEventListener('dblclick', function(){ histReset(); });
+
+    /* 棒グラフクリック */
+    canvas.addEventListener('click', function(e) {
+        if (selection.active) return;
+        var rect = canvas.getBoundingClientRect();
+        var mx = e.clientX - rect.left;
+        var my = e.clientY - rect.top;
+        if (my < PADDING.top || my > canvas.height - PADDING.bottom) return;
+        var bars = window._histBarRects || [];
+        for (var bi = 0; bi < bars.length; bi++) {
+            if (mx >= bars[bi].x && mx <= bars[bi].x + bars[bi].w) {
+                clickedBarDay = (clickedBarDay === bars[bi].day) ? null : bars[bi].day;
+                applyAllFilters();
+                return;
+            }
+        }
+    });
+
+    /* ツールチップ */
+    var tooltip = document.createElement('div');
+    tooltip.className = 'hist-bar-tooltip';
+    canvas.parentElement.style.position = 'relative';
+    canvas.parentElement.appendChild(tooltip);
+    canvas.addEventListener('mousemove', function(e) {
+        var rect = canvas.getBoundingClientRect();
+        var mx = e.clientX - rect.left;
+        var bars = window._histBarRects || [];
+        var found = false;
+        for (var bi = 0; bi < bars.length; bi++) {
+            if (mx >= bars[bi].x && mx <= bars[bi].x + bars[bi].w) {
+                var day = bars[bi].day;
+                var dd = stackedData.data[day];
+                if (!dd) break;
+                var lines = ['\u25a0 ' + day];
+                var cats = Object.keys(CAT_COLORS);
+                var total = 0;
+                cats.forEach(function(c) {
+                    var n = dd[c] || 0;
+                    if (n > 0) lines.push(c + ': ' + n + '件');
+                    total += n;
+                });
+                lines.push('合計: ' + total + '件');
+                tooltip.innerHTML = lines.join('<br>');
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.clientX - rect.left + 15) + 'px';
+                tooltip.style.top = (e.clientY - rect.top - 10) + 'px';
+                found = true;
+                break;
+            }
+        }
+        if (!found) tooltip.style.display = 'none';
+    });
+    canvas.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
+}
+
+function buildLegend() {
+    var el = document.getElementById('hist-legend');
+    if (!el) return;
+    var cats = Object.keys(CAT_COLORS);
+    el.innerHTML = cats.map(function(c) {
+        return '<span class="hist-legend-item"><span class="hist-legend-swatch" style="background:' + CAT_COLORS[c] + '"></span>' + c + '</span>';
+    }).join('');
 }
 
 function finishSelection() {
@@ -2526,20 +2684,21 @@ function finishSelection() {
     applyRangeFilter();
 }
 
-function resetZoom() {
-    selection = { start: null, end: null, active: false };
-    document.getElementById('selection-info').style.display = 'none';
-    filterAll();
-    drawGraph();
-}
+function resetZoom() { histReset(); }
 
 function drawGraph() {
-    const w = canvas.width, h = canvas.height;
-    const drawW = w - PADDING.left - PADDING.right;
-    const drawH = h - PADDING.top - PADDING.bottom;
+    if (!canvas || !ctx) return;
+    var w = canvas.width, h = canvas.height;
+    var drawW = w - PADDING.left - PADDING.right;
+    var drawH = h - PADDING.top - PADDING.bottom;
     ctx.clearRect(0, 0, w, h);
 
-    /* 軸 */
+    var days = stackedData.days;
+    var data = stackedData.data;
+    var maxVal = stackedData.maxTotal || 1;
+    var cats = ['EventLog','Process','Network','Evidence','Persistence','Other'];
+
+    /* 軸線 */
     ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -2548,62 +2707,85 @@ function drawGraph() {
     ctx.lineTo(w - PADDING.right, h - PADDING.bottom);
     ctx.stroke();
 
-    /* ラベル */
+    /* 縦軸目盛り（5段階） */
     ctx.fillStyle = '#5a7a9a';
     ctx.font = '10px Consolas';
-    const maxVal = Math.max(...buckets, 1);
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText(maxVal, PADDING.left - 5, PADDING.top);
-    ctx.fillText('0', PADDING.left - 5, h - PADDING.bottom);
+    for (var step = 0; step <= 4; step++) {
+        var val = Math.round(maxVal * step / 4);
+        var y = (h - PADDING.bottom) - (drawH * step / 4);
+        ctx.fillText(String(val), PADDING.left - 5, y);
+        if (step > 0) {
+            ctx.strokeStyle = 'rgba(100,150,200,0.15)';
+            ctx.beginPath();
+            ctx.moveTo(PADDING.left, y);
+            ctx.lineTo(w - PADDING.right, y);
+            ctx.stroke();
+        }
+    }
 
+    if (days.length === 0) {
+        ctx.fillStyle = '#5a7a9a';
+        ctx.textAlign = 'center';
+        ctx.fillText('データなし', w/2, h/2);
+        return;
+    }
+
+    /* 棒グラフ描画 */
+    var gap = Math.max(1, Math.min(3, Math.floor(drawW / days.length * 0.1)));
+    var barW = Math.max(2, Math.floor((drawW - gap * days.length) / days.length));
+    if (barW > 40) barW = 40;
+
+    window._histBarRects = [];
+    days.forEach(function(day, di) {
+        var x = PADDING.left + di * (barW + gap);
+        var yOff = h - PADDING.bottom;
+        var isClicked = (clickedBarDay === day);
+        cats.forEach(function(cat) {
+            var count = (data[day] && data[day][cat]) ? data[day][cat] : 0;
+            if (count === 0) return;
+            var barH = Math.max(1, (count / maxVal) * drawH);
+            ctx.fillStyle = CAT_COLORS[cat] || '#78909c';
+            if (isClicked) ctx.globalAlpha = 1.0;
+            else if (clickedBarDay) ctx.globalAlpha = 0.3;
+            else ctx.globalAlpha = 0.85;
+            ctx.fillRect(x, yOff - barH, barW, barH);
+            yOff -= barH;
+        });
+        ctx.globalAlpha = 1.0;
+        if (isClicked) {
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x - 1, PADDING.top, barW + 2, drawH);
+        }
+        window._histBarRects.push({ x: x, w: barW, day: day });
+    });
+
+    /* 横軸ラベル */
+    ctx.fillStyle = '#5a7a9a';
+    ctx.font = '9px Consolas';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    var labelInterval = Math.max(1, Math.ceil(days.length / 12));
+    for (var li = 0; li < days.length; li += labelInterval) {
+        var lx = PADDING.left + li * (barW + gap) + barW / 2;
+        var parts = days[li].split('-');
+        ctx.fillText(parts[1] + '/' + parts[2], lx, h - PADDING.bottom + 3);
+        if (li === 0 || days[li].substring(0,4) !== days[Math.max(0,li-labelInterval)].substring(0,4)) {
+            ctx.fillText(parts[0], lx, h - PADDING.bottom + 14);
+        }
+    }
+
+    /* 縦軸ラベル */
     ctx.save();
-    ctx.translate(15, h / 2);
+    ctx.translate(12, h / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.fillStyle = '#00d4ff';
-    ctx.fillText('Activity', 0, 0);
+    ctx.font = '10px Consolas';
+    ctx.fillText('Events', 0, 0);
     ctx.restore();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = '#5a7a9a';
-    ctx.fillText(formatShortDate(new Date(timeRange.min)), PADDING.left, h - PADDING.bottom + 5);
-    ctx.fillText(formatShortDate(new Date(timeRange.max)), w - PADDING.right, h - PADDING.bottom + 5);
-    ctx.fillStyle = '#00d4ff';
-    ctx.fillText('Time Line', PADDING.left + drawW / 2, h - PADDING.bottom + 18);
-
-    if (buckets.length === 0) return;
-    const stepX = drawW / (buckets.length - 1);
-
-    /* エリアチャート */
-    ctx.beginPath();
-    ctx.moveTo(PADDING.left, h - PADDING.bottom);
-    buckets.forEach((val, i) => {
-        ctx.lineTo(PADDING.left + (i * stepX), (h - PADDING.bottom) - ((val / maxVal) * drawH));
-    });
-    ctx.lineTo(PADDING.left + drawW, h - PADDING.bottom);
-    ctx.closePath();
-    const grad = ctx.createLinearGradient(0, PADDING.top, 0, h - PADDING.bottom);
-    grad.addColorStop(0, 'rgba(0, 212, 255, 0.5)');
-    grad.addColorStop(1, 'rgba(0, 212, 255, 0.05)');
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.strokeStyle = '#00d4ff';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    /* 選択範囲 */
-    if (selection.start !== null && selection.end !== null) {
-        const s = Math.min(selection.start, selection.end);
-        const e = Math.max(selection.start, selection.end);
-        const selW = e - s;
-        ctx.fillStyle = 'rgba(0, 212, 255, 0.1)';
-        ctx.fillRect(s, PADDING.top, selW, drawH);
-        ctx.strokeStyle = '#00d4ff';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(s, PADDING.top, selW, drawH);
-    }
 }
 
 function updateSelectionInfo() {
