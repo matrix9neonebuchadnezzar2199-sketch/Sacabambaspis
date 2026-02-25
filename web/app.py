@@ -6,6 +6,7 @@ import json
 import glob
 import time
 import threading
+import uuid
 import webbrowser
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request
@@ -770,6 +771,14 @@ def api_scan_start():
 def api_scan_status():
     return jsonify(_scan_status)
 
+
+def assign_uids(items):
+    """全アーティファクトに一意の _uid を付与"""
+    for item in items:
+        if '_uid' not in item:
+            item['_uid'] = uuid.uuid4().hex[:12]
+    return items
+
 def _run_scan():
     global scan_results, _scan_status
     try:
@@ -891,6 +900,20 @@ def _run_scan():
                 sum(1 for x in cam_results if x['status']=='DANGER') + \
                 sum(1 for x in srum_results if x['status']=='DANGER') + \
                 sum(1 for x in recall_results if x['status']=='DANGER')
+
+        # UUID付与（証拠保全用一意識別子）
+        assign_uids(procs)
+        assign_uids(injections)
+        assign_uids(persistence)
+        assign_uids(networks)
+        assign_uids(evidence)
+        assign_uids(logs)
+        assign_uids(pca_results)
+        assign_uids(ads_results)
+        assign_uids(wsl_results)
+        assign_uids(cam_results)
+        assign_uids(srum_results)
+        assign_uids(recall_results)
 
         scan_results = {
             "system": {

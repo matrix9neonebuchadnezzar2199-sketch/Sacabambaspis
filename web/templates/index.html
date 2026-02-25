@@ -226,6 +226,37 @@
 [data-explanation-level="beginner"] .cell-desc,
 [data-explanation-level="beginner"] .cell-reason { font-size: calc(var(--font-size-base) + 1px); }
 [data-explanation-level="advanced"] .cell-desc { font-size: calc(var(--font-size-base) - 1px); line-height: 1.6; }
+
+/* === Safe Confirmed Button === */
+.safe-toggle-btn {
+    padding: 2px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+}
+.tag-safe-unknown {
+    background: rgba(128,128,128,0.2);
+    color: #999;
+    border-color: rgba(128,128,128,0.3);
+}
+.tag-safe-unknown:hover {
+    background: rgba(74,222,128,0.15);
+    color: var(--accent-success, #4ade80);
+}
+.tag-safe-confirmed {
+    background: rgba(74,222,128,0.2);
+    color: var(--accent-success, #4ade80);
+    border-color: rgba(74,222,128,0.4);
+    box-shadow: 0 0 6px rgba(74,222,128,0.2);
+}
+.tag-safe-confirmed:hover {
+    background: rgba(128,128,128,0.15);
+    color: #999;
+}
+
 </style>
 <style>
 /* P19: Decision Tree スタイル */
@@ -640,6 +671,7 @@
                 <button id="btn-warning" class="filter-btn" onclick="toggleWarningFilter()">🟡 警告のみ (OFF)</button>
                 <button id="btn-danger" class="filter-btn" onclick="toggleDangerFilter()">🔴 危険のみ (OFF)</button>
                 <button id="btn-self" class="filter-btn" onclick="toggleSelfFilter()">🐟 自己除外 (OFF)</button>
+                <button id="btn-safe-confirmed" class="filter-btn" onclick="toggleSafeConfirmedFilter()">&#x2705; 安全確認済み除外 (OFF)</button>
                 <button id="btn-report" class="filter-btn" onclick="generateReport()" style="margin-left:auto;">📄 レポート出力</button>
                 <button id="btn-csv-current" class="filter-btn" onclick="exportCurrentTabCSV()">📥 CSV出力</button>
                 <button id="btn-csv-all" class="filter-btn" onclick="exportAllCSV()">📦 全CSV</button>
@@ -682,6 +714,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >Date/Time</th>
                             <th >Category</th>
                             <th >Type/ID</th>
@@ -709,6 +742,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >ID</th>
                             <th >Time</th>
                             <th >Log</th>
@@ -736,6 +770,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >PID</th>
                             <th >Name</th>
                             <th >Parent</th>
@@ -763,6 +798,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >PID</th>
                             <th >Process</th>
                             <th >Address</th>
@@ -790,6 +826,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >Type</th>
                             <th >Name</th>
                             <th>Command</th>
@@ -820,6 +857,7 @@
                     <table>
                         <thead><tr>
                             <th>☑</th>
+                            <th >安全</th>
                             <th>Proto</th>
                             <th>Local</th>
                             <th>Remote</th>
@@ -851,6 +889,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >Source</th>
                             <th>Artifact</th>
                             <th >Time</th>
@@ -872,6 +911,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >Source</th>
                             <th >ファイル名</th>
                             <th>パス</th>
@@ -898,6 +938,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >ファイル名</th>
                             <th >Zone</th>
                             <th>DL元</th>
@@ -924,6 +965,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >検査項目</th>
                             <th >検出内容</th>
                             <th>詳細</th>
@@ -948,6 +990,7 @@
                     <table>
                         <thead><tr>
                             <th>☑</th>
+                            <th >安全</th>
                             <th>Source</th>
                             <th>プログラム名</th>
                             <th>パス</th>
@@ -975,6 +1018,7 @@
                     <table>
                         <thead><tr>
                             <th>☑</th>
+                            <th >安全</th>
                             <th>Source</th>
                             <th>アプリ名</th>
                             <th>詳細</th>
@@ -1004,6 +1048,7 @@
                     <table>
                         <thead><tr>
                             <th>☑</th>
+                            <th >安全</th>
                             <th>検査項目</th>
                             <th>検出内容</th>
                             <th>詳細</th>
@@ -1034,6 +1079,7 @@
                     <table>
                         <thead><tr>
                             <th >☑</th>
+                            <th >安全</th>
                             <th >カテゴリ</th>
                             <th >名前/ID</th>
                             <th>Reason</th>
@@ -1295,6 +1341,7 @@
                     <table>
                         <thead><tr>
                             <th style="width:40px;">☑</th>
+                            <th >安全</th>
                             <th style="width:40px;">#</th>
                             <th>ファイル名</th>
                             <th style="width:90px;">種別</th>
@@ -1508,6 +1555,8 @@ let hideSafeFilter = false;
 let warningFilter = false;
 let dangerFilter = false;
 let selfFilter = false;
+    let safeConfirmedFilter = false;
+    let safeConfirmedItems = new Map();
 let importantItems = new Map();
 let canvas, ctx;
 let buckets = [];
@@ -1525,6 +1574,7 @@ const CAT_CONFIG = {
 /* --- 初期化 --- */
 document.addEventListener('DOMContentLoaded', () => {
     loadImportantFromStorage();
+    loadSafeFromStorage();
     fetch('/api/data').then(r => r.json()).then(data => {
         window._scanData = data;
         if (data && data.system) {
@@ -1607,6 +1657,10 @@ function updateDashboard(data) {
 
 /* --- 重要アイテム管理 --- */
 function getItemKey(tab, item) {
+    // UUID優先: タイムラインは _src._uid、その他は _uid
+    if (tab === 'timeline' && item._src && item._src._uid) return item._src._uid;
+    if (item._uid) return item._uid;
+    // フォールバック（UIDなし）
     switch (tab) {
         case 'proc':    return 'proc_' + item.pid;
         case 'memory':  return 'mem_' + item.pid + '_' + (item.address || '');
@@ -1662,13 +1716,16 @@ function loadImportantFromStorage() {
 function updateImportantBadge() {
     const badge = document.getElementById('important-count');
     var count = 0;
-    importantItems.forEach(function(entry) {
+    importantItems.forEach(function(entry, key) {
         var d = entry.data;
+        var tab = entry.tab;
         var status = d.status || 'INFO';
         if (selfFilter && d.is_self) return;
         if (dangerFilter && status !== 'DANGER') return;
         if (warningFilter && status !== 'WARNING') return;
         if (hideSafeFilter && (status === 'SAFE' || status === 'INFO')) return;
+        var safeKey = (tab === 'timeline' && d._src && d._src._uid) ? d._src._uid : key;
+        if (safeConfirmedFilter && safeConfirmedItems.has(safeKey)) return;
         count++;
     });
     if (count > 0) {
@@ -1679,16 +1736,18 @@ function updateImportantBadge() {
     }
 }
 
-var _impDataList = [];
+var _impDataMap = {};
 function importantCheckbox(tab, itemKey, item) {
     var checked = isImportant(itemKey) ? ' checked' : '';
-    var idx = _impDataList.length;
-    _impDataList.push({ tab: tab, key: itemKey, data: item });
-    return '<input type="checkbox" class="important-checkbox"' + checked + ' onclick="onImpCheck(' + idx + ')">';
+    var escapedKey = itemKey.replace(/'/g, "\\'");
+    var escapedTab = tab.replace(/'/g, "\\'");
+    // item を _impDataMap に登録（UIDベース、インデックス不使用）
+    _impDataMap[itemKey] = { tab: tab, key: itemKey, data: item };
+    return '<input type="checkbox" class="important-checkbox"' + checked + " onclick=\"onImpCheck('" + escapedKey + "','" + escapedTab + "')\">";
 }
 
-function onImpCheck(idx) {
-    var entry = _impDataList[idx];
+function onImpCheck(itemKey, tab) {
+    var entry = _impDataMap[itemKey];
     if (!entry) return;
     toggleImportant(entry.tab, entry.key, entry.data);
     var activeTab = document.querySelector('.card.active');
@@ -1704,7 +1763,7 @@ function onImpCheck(idx) {
 function renderImportantTab() {
     var el = document.getElementById('list-important');
     if (importantItems.size === 0) {
-        el.innerHTML = '<tr class="empty-row"><td colspan="7">重要アーティファクトはまだ登録されていません</td></tr>';
+        el.innerHTML = '<tr class="empty-row"><td colspan="8">重要アーティファクトはまだ登録されていません</td></tr>';
         updateImportantFilteredCount(0);
         return;
     }
@@ -1720,6 +1779,8 @@ function renderImportantTab() {
         if (dangerFilter && status !== 'DANGER') return;
         if (warningFilter && status !== 'WARNING') return;
         if (hideSafeFilter && (status === 'SAFE' || status === 'INFO')) return;
+        var safeKey = (tab === 'timeline' && d._src && d._src._uid) ? d._src._uid : key;
+        if (safeConfirmedFilter && safeConfirmedItems.has(safeKey)) return;
 
         var tabLabel = getTabLabel(tab);
         var name = d.name || d.exe_name || d.artifact || d.program_name || d.app_name || d.process || d.id || d.pid || '-';
@@ -1734,29 +1795,25 @@ function renderImportantTab() {
         }
 
         visibleCount++;
-
-
-
-        visibleCount++;
-        var tabLabel = getTabLabel(tab);
-        var name = d.name || d.exe_name || d.artifact || d.program_name || d.app_name || d.process || d.id || d.pid || '-';
-        var reason = d.reason || d.desc || '';
-        var time = d.time || d.timestamp || '';
-        var idx = _impDataList.length;
-        _impDataList.push({ tab: tab, key: key, data: d });
+        _impDataMap[key] = { tab: tab, key: key, data: d };
         var checked = isImportant(key) ? ' checked' : '';
         html += '<tr class="row-important">';
-        html += '<td><input type="checkbox" class="important-checkbox"' + checked + ' onclick="onImpCheck(' + idx + ')"></td>';
+        html += '<td><input type="checkbox" class="important-checkbox"' + checked + ' onclick="onImpCheck(\'' + key.replace(/'/g, "\\\\'") + '\',\'' + tab.replace(/'/g, "\\\\'") + '\')"></td>';
+        var impSafeKey = (tab === 'timeline' && d._src && d._src._uid) ? d._src._uid : key;
+        var safeClass = safeConfirmedItems.has(impSafeKey) ? 'tag-safe-confirmed' : 'tag-safe-unknown';
+        var safeLabel = safeConfirmedItems.has(impSafeKey) ? '安全' : '不明';
+        var escapedKey = impSafeKey.replace(/'/g, "\\'");
+        html += '<td><button class="safe-toggle-btn ' + safeClass + '" onclick="toggleSafeByKey(\'' + escapedKey + '\')">' + safeLabel + '</button></td>';
         html += '<td><span class="tag tag-evid">' + tabLabel + '</span></td>';
         html += '<td>' + name + '</td>';
         html += '<td class="cell-reason">' + (reason ? '⚠️ ' + reason : '') + '</td>';
         html += '<td>' + time + '</td>';
         html += '<td class="' + cls(status) + '">' + statusJP(status) + '</td>';
-        html += '<td><button class="detail-btn" onclick="openDetailModal(\'' + tab + '\', ' + idx + ')">📋 詳細</button></td>';
+        html += '<td><button class="detail-btn" onclick="openDetailModal(\'' + tab + '\',\'' + key.replace(/'/g, "\\\\\\\\'") + '\')">📋 詳細</button></td>';
         html += '</tr>';
     });
     if (visibleCount === 0) {
-        el.innerHTML = '<tr class="empty-row"><td colspan="7">フィルタ条件に一致する重要アーティファクトはありません</td></tr>';
+        el.innerHTML = '<tr class="empty-row"><td colspan="8">フィルタ条件に一致する重要アーティファクトはありません</td></tr>';
     } else {
         el.innerHTML = html;
         // P25-A: 重要タブ検索ハイライト
@@ -1899,11 +1956,10 @@ function processData() {
 
 /* --- テーブル描画 --- */
 function renderAll() {
-    _impDataList = [];
+    _impDataMap = {};
     renderTimeline(timelineItems);
     renderTables('');
     updateCounts();
-    updateImportantBadge();
 }
 
 
@@ -1922,6 +1978,7 @@ function renderTimeline(items) {
         if (impClass) rowClass = 'row-important';
         return '<tr class="' + rowClass + '">' +
             '<td>' + importantCheckbox('timeline', key, i._src || i) + '</td>' +
+            '<td>' + safeButton('timeline', (i._src && i._src._uid) ? i._src._uid : key, i._src || i) + '</td>' +
             '<td>' + formatDate(i.ts) + '</td>' +
             '<td><span class="tag ' + conf.class + '">' + conf.label + '</span></td>' +
             '<td>' + i.id + '</td>' +
@@ -1940,6 +1997,7 @@ function renderTables(keyword) {
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('logs', key, i) + '</td>' +
+            '<td>' + safeButton('logs', key, i) + '</td>' +
             '<td>' + i.id + '</td>' +
             '<td>' + i.time + '</td>' +
             '<td>' + i.log + '</td>' +
@@ -1956,6 +2014,7 @@ function renderTables(keyword) {
         const dnaText = i.dna ? i.dna.entropy + ' (' + i.dna.verdict + ')' : '-';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('proc', key, i) + '</td>' +
+            '<td>' + safeButton('proc', key, i) + '</td>' +
             '<td>' + i.pid + '</td>' +
             '<td class="' + cls(i.status) + '">' + i.name + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
             '<td class="cell-sub">' + (i.parent || '-') + '</td>' +
@@ -1977,6 +2036,7 @@ function renderTables(keyword) {
         else typeTag = '<span class="badge" style="background:var(--accent-success);color:#0a1628;">正常</span>';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('memory', key, i) + '</td>' +
+            '<td>' + safeButton('memory', key, i) + '</td>' +
             '<td>' + i.pid + '</td>' +
             '<td>' + i.name + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
             '<td class="cell-sub">' + i.address + '</td>' +
@@ -1993,6 +2053,7 @@ function renderTables(keyword) {
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('persist', key, i) + '</td>' +
+            '<td>' + safeButton('persist', key, i) + '</td>' +
             '<td>' + i.type + '</td>' +
             '<td>' + (i.name || i.entry) + '</td>' +
             '<td class="cell-sub" style="word-break:break-all;">' + (i.command || i.value) + '</td>' +
@@ -2011,6 +2072,7 @@ function renderTables(keyword) {
         else if (i.signature === '署名済み') sigStyle = 'color:var(--accent-success);';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('network', key, i) + '</td>' +
+            '<td>' + safeButton('network', key, i) + '</td>' +
             '<td>' + i.protocol + '</td>' +
             '<td>' + i.local + '</td>' +
             '<td>' + i.remote + '</td>' +
@@ -2032,6 +2094,7 @@ function renderTables(keyword) {
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('evidence', key, i) + '</td>' +
+            '<td>' + safeButton('evidence', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
             '<td>' + i.artifact + '</td>' +
             '<td>' + i.timestamp + '</td>'
@@ -2045,6 +2108,7 @@ function renderTables(keyword) {
         const fileStatus = i.file_exists ? '<span style="color:var(--accent-success);">存在</span>' : '<span style="color:var(--accent-error);font-weight:bold;">削除済み</span>';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('pca', key, i) + '</td>' +
+            '<td>' + safeButton('pca', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + (i.exe_name || '') + '</td>' +
             '<td class="cell-sub">' + i.artifact + '</td>' +
@@ -2061,6 +2125,7 @@ function renderTables(keyword) {
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('ads', key, i) + '</td>' +
+            '<td>' + safeButton('ads', key, i) + '</td>' +
             '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
             '<td>' + (i.zone_name || '') + '</td>' +
             '<td class="cell-sub">' + i.host_url + '</td>' +
@@ -2078,6 +2143,7 @@ function renderTables(keyword) {
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('wsl', key, i) + '</td>' +
+            '<td>' + safeButton('wsl', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
             '<td class="cell-sub">' + (i.detail ? filterDescByLevel(i.detail).replace(/\\n/g, '<br>') : '') + '</td>' +
@@ -2094,6 +2160,7 @@ function renderTables(keyword) {
         const fileStatus = i.file_exists ? '<span style="color:var(--accent-success);">存在</span>' : '<span style="color:var(--accent-error);font-weight:bold;">削除済み</span>';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('cam', key, i) + '</td>' +
+            '<td>' + safeButton('cam', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + (i.program_name || '') + '</td>' +
             '<td class="cell-sub">' + (i.exe_path || '') + '</td>' +
@@ -2112,6 +2179,7 @@ function renderTables(keyword) {
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('srum', key, i) + '</td>' +
+            '<td>' + safeButton('srum', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + (i.app_name || '') + '</td>' +
             '<td class="cell-sub">' + (i.detail || '') + '</td>' +
@@ -2131,6 +2199,7 @@ function renderTables(keyword) {
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
             '<td>' + importantCheckbox('recall', key, i) + '</td>' +
+            '<td>' + safeButton('recall', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + (i.artifact || '') + '</td>' +
             '<td class="cell-sub">' + (i.detail || '') + '</td>' +
@@ -2150,6 +2219,7 @@ function renderTableGeneric(id, data, keys, keyword, tab, rowFn) {
     if (dangerFilter) list = list.filter(i => i.status === 'DANGER');
     if (warningFilter) list = list.filter(i => i.status === 'WARNING');
     if (hideSafeFilter) list = list.filter(i => i.status !== 'SAFE' && i.status !== 'INFO');
+    if (safeConfirmedFilter) list = list.filter(i => !safeConfirmedItems.has(i._uid || getItemKey(tab, i)));
     if (keyword) list = list.filter(i => keys.some(k => String(i[k]).toLowerCase().includes(keyword)));
     if (list.length === 0) {
         const colCount = el.closest('table').querySelectorAll('th').length;
@@ -2184,6 +2254,7 @@ function filterAll() {
     if (dangerFilter) items = items.filter(i => i.status === 'DANGER');
     if (warningFilter) items = items.filter(i => i.status === 'WARNING');
     if (hideSafeFilter) items = items.filter(i => i.status !== 'SAFE' && i.status !== 'INFO');
+    if (safeConfirmedFilter) items = items.filter(function(i) { var uid = getItemKey('timeline', i); return !safeConfirmedItems.has(uid); });
     if (keyword) items = items.filter(i => String(i.id).toLowerCase().includes(keyword) || (i.target && i.target.toLowerCase().includes(keyword)) || (i.reason && i.reason.toLowerCase().includes(keyword)));
     renderTimeline(items);
     renderTables(keyword);
@@ -2242,6 +2313,87 @@ function toggleSelfFilter() {
     filterAll();
 }
 
+    function toggleSafeConfirmedFilter() {
+        safeConfirmedFilter = !safeConfirmedFilter;
+        var btn = document.getElementById('btn-safe-confirmed');
+        btn.innerHTML = safeConfirmedFilter ? '&#x2705; 安全確認済み除外 (ON)' : '&#x2705; 安全確認済み除外 (OFF)';
+        btn.classList.toggle('active', safeConfirmedFilter);
+        filterAll();
+    }
+
+    function isSafeConfirmed(itemKey) {
+        return safeConfirmedItems.has(itemKey);
+    }
+
+    function toggleSafeByKey(key) {
+        if (safeConfirmedItems.has(key)) {
+            safeConfirmedItems.delete(key);
+        } else {
+            safeConfirmedItems.set(key, true);
+        }
+        saveSafeToStorage();
+        // 全ての安全ボタンを即時更新（同じキーのボタンを全タブで更新）
+        var isSafe = safeConfirmedItems.has(key);
+        var allBtns = document.querySelectorAll('.safe-toggle-btn');
+        allBtns.forEach(function(btn) {
+            var onclick = btn.getAttribute('onclick') || '';
+            if (onclick.indexOf(key) !== -1) {
+                btn.textContent = isSafe ? '安全' : '不明';
+                btn.className = 'safe-toggle-btn ' + (isSafe ? 'tag-safe-confirmed' : 'tag-safe-unknown');
+            }
+        });
+        // バッジ等の更新
+        updateImportantBadge();
+        // フィルタ適用中なら全体再描画
+        if (safeConfirmedFilter) {
+            renderAll();
+        }
+    }
+    window.toggleSafeByKey = toggleSafeByKey;
+    window.onImpCheck = onImpCheck;
+    window.openDetailModal = openDetailModal;
+
+    function catToTab(cat) {
+        var map = { 'Network': 'network', 'Process': 'proc', 'EventLog': 'logs', 'Evidence': 'evidence',
+                    'Memory': 'memory', 'Persist': 'persist', 'PCA': 'pca', 'ADS': 'ads',
+                    'WSL': 'wsl', 'Camera': 'cam', 'SRUM': 'srum', 'Recall': 'recall' };
+        return map[cat] || cat.toLowerCase();
+    }
+
+    function getOriginalKey(timelineItem) {
+        if (!timelineItem._src || !timelineItem.cat) return null;
+        var tab = catToTab(timelineItem.cat);
+        return getItemKey(tab, timelineItem._src);
+    }
+
+    function safeButton(tab, itemKey, item) {
+        var isSafe = safeConfirmedItems.has(itemKey);
+        var label = isSafe ? '安全' : '不明';
+        var btnCls = isSafe ? 'tag-safe-confirmed' : 'tag-safe-unknown';
+        var escapedKey = itemKey.replace(/'/g, "\\'");
+        return '<button class="safe-toggle-btn ' + btnCls + '" onclick="toggleSafeByKey(\'' + escapedKey + '\')">' + label + '</button>';
+    }
+
+    function saveSafeToStorage() {
+        var arr = [];
+        safeConfirmedItems.forEach(function(val, key) { arr.push(key); });
+        localStorage.setItem('saca-safe-confirmed', JSON.stringify(arr));
+    }
+
+    function loadSafeFromStorage() {
+        var saved = localStorage.getItem('saca-safe-confirmed');
+        if (saved) {
+            try {
+                var arr = JSON.parse(saved);
+                safeConfirmedItems = new Map();
+                arr.forEach(function(key) { safeConfirmedItems.set(key, true); });
+            } catch (e) {
+                safeConfirmedItems = new Map();
+            }
+        }
+    }
+
+
 
 function updateCounts() {
     if (!allData) return;
@@ -2251,6 +2403,7 @@ function updateCounts() {
         if (dangerFilter) l = l.filter(i => i.status === 'DANGER');
         if (warningFilter) l = l.filter(i => i.status === 'WARNING');
         if (hideSafeFilter) l = l.filter(i => i.status !== 'SAFE' && i.status !== 'INFO');
+        if (safeConfirmedFilter) l = l.filter(function(i) { var uid = (i._src && i._src._uid) ? i._src._uid : (i._uid || null); return !uid || !safeConfirmedItems.has(uid); });
         return l.length;
     };
 
@@ -2450,8 +2603,8 @@ function statusJP(s) { return s === 'DANGER' ? '危険' : s === 'WARNING' ? '警
 /* --- 詳細モーダル --- */
 function openDetailModal(tab, idxOrKey) {
     var d, actualTab;
-    if (typeof idxOrKey === 'number') {
-        var entry = _impDataList[idxOrKey];
+    if (typeof idxOrKey === 'string') {
+        var entry = _impDataMap[idxOrKey];
         if (!entry) return;
         d = entry.data;
         actualTab = entry.tab;
@@ -2672,6 +2825,9 @@ function initColumnResize() {
 const originalRenderAll = renderAll;
 renderAll = function() {
     originalRenderAll();
+    renderImportantTab();
+    updateImportantBadge();
+    updateCounts();
     setTimeout(initColumnResize, 50);
 };
 
