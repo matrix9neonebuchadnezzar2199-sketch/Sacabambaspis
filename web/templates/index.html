@@ -529,6 +529,50 @@
     color: var(--text-muted, #6b6b6b);
     font-size: 16px;
 }
+/* --- 重要タブ ホバー詳細ポップアップ --- */
+.imp-hover-detail {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 70vw;
+    max-width: 900px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: #1e2228 !important;
+    color: var(--text-main, #e0e0e0);
+    border: 2px solid var(--accent, #64b5f6);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+    padding: 24px 28px;
+    z-index: 10001;
+    font-size: 0.95em;
+}
+.imp-hover-detail.visible { display: block; }
+.imp-hover-detail .hover-close-btn {
+    position: absolute; top: 8px; right: 12px;
+    background: none; border: none; color: var(--text-main, #ccc);
+    font-size: 1.4em; cursor: pointer;
+}
+.imp-hover-detail .hover-close-btn:hover { color: #ff5252; }
+.imp-hover-detail .detail-category-badge { margin-bottom: 12px; display: inline-block; }
+.imp-hover-detail .detail-row { display: flex; border-bottom: 1px solid var(--border, #3a3f4b); padding: 6px 0; }
+.imp-hover-detail .detail-label { min-width: 140px; font-weight: bold; color: var(--accent, #64b5f6); }
+.imp-hover-detail .detail-value { flex: 1; word-break: break-all; }
+.imp-hover-detail .detail-value-danger { color: var(--accent-error, #ef5350); }
+.imp-hover-detail .detail-value-safe { color: var(--accent-success, #66bb6a); }
+.imp-hover-detail .detail-value-warning { color: var(--accent-warning, #ffa726); }
+.imp-hover-backdrop {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.4);
+    z-index: 10000;
+    cursor: pointer;
+}
+.imp-hover-backdrop.visible { display: block; }
+
 </style>
 
 </head>
@@ -1519,6 +1563,10 @@
 </div><!-- /app-layout -->
 
 <!-- 詳細モーダル -->
+<!-- 重要タブ ホバー詳細ポップアップ -->
+<div class="imp-hover-backdrop" id="imp-hover-backdrop"></div>
+<div class="imp-hover-detail" id="imp-hover-detail"></div>
+
 <div class="detail-modal-overlay" role="dialog" aria-modal="true" aria-label="アーティファクト詳細" id="detail-modal-overlay" onclick="if(event.target===this)closeDetailModal()">
     <div class="detail-modal">
         <div class="detail-modal-header">
@@ -1763,7 +1811,7 @@ function onImpCheck(itemKey, tab) {
 function renderImportantTab() {
     var el = document.getElementById('list-important');
     if (importantItems.size === 0) {
-        el.innerHTML = '<tr class="empty-row"><td colspan="8">重要アーティファクトはまだ登録されていません</td></tr>';
+        el.innerHTML = '<tr class="empty-row"><td colspan="7">重要アーティファクトはまだ登録されていません</td></tr>';
         updateImportantFilteredCount(0);
         return;
     }
@@ -1797,7 +1845,7 @@ function renderImportantTab() {
         visibleCount++;
         _impDataMap[key] = { tab: tab, key: key, data: d };
         var checked = isImportant(key) ? ' checked' : '';
-        html += '<tr class="row-important">';
+        html += '<tr class="row-important imp-hover-row" data-imp-key="' + key + '" data-imp-tab="' + tab + '">';
         html += '<td><input type="checkbox" class="important-checkbox"' + checked + ' onclick="onImpCheck(\'' + key.replace(/'/g, "\\\\'") + '\',\'' + tab.replace(/'/g, "\\\\'") + '\')"></td>';
         var impSafeKey = (tab === 'timeline' && d._src && d._src._uid) ? d._src._uid : key;
         var safeClass = safeConfirmedItems.has(impSafeKey) ? 'tag-safe-confirmed' : 'tag-safe-unknown';
@@ -1809,11 +1857,10 @@ function renderImportantTab() {
         html += '<td class="cell-reason">' + (reason ? '⚠️ ' + reason : '') + '</td>';
         html += '<td>' + time + '</td>';
         html += '<td class="' + cls(status) + '">' + statusJP(status) + '</td>';
-        html += '<td><button class="detail-btn" onclick="openDetailModal(\'' + tab + '\',\'' + key.replace(/'/g, "\\\\\\\\'") + '\')">📋 詳細</button></td>';
         html += '</tr>';
     });
     if (visibleCount === 0) {
-        el.innerHTML = '<tr class="empty-row"><td colspan="8">フィルタ条件に一致する重要アーティファクトはありません</td></tr>';
+        el.innerHTML = '<tr class="empty-row"><td colspan="7">フィルタ条件に一致する重要アーティファクトはありません</td></tr>';
     } else {
         el.innerHTML = html;
         // P25-A: 重要タブ検索ハイライト
@@ -5722,6 +5769,69 @@ switchTab = function(id, el) {
     _origSwitchTab2(id, el);
     if (id === 'yaramgr') { ymInit(); ymLoadPresets(); }
 };
+
+
+/* --- 重要タブ クリック詳細 --- */
+(function(){
+    var hoverEl = document.getElementById('imp-hover-detail');
+    var backdrop = document.getElementById('imp-hover-backdrop');
+    var currentKey = null;
+
+    function showDetail(key, tab) {
+        if (currentKey === key) { forceHide(); return; }
+        currentKey = key;
+        var entry = (typeof _impDataMap !== 'undefined') ? _impDataMap[key] : null;
+        if (!entry) return;
+        var d = entry.data;
+        var actualTab = entry.tab || tab || '';
+        var tabLabel = (typeof getTabLabel === 'function') ? getTabLabel(actualTab) : actualTab;
+        var html = '<button class="hover-close-btn" id="imp-hover-close-btn">\u2715</button>';
+        html += '<span class="detail-category-badge tag-evid">' + tabLabel + '</span>';
+        if (typeof getDetailFields === 'function') {
+            var fields = getDetailFields(actualTab, d);
+            var _descIdx = 0;
+            fields.forEach(function(f) {
+                var valClass = '';
+                if (f.type === 'danger') valClass = ' detail-value-danger';
+                else if (f.type === 'safe') valClass = ' detail-value-safe';
+                else if (f.type === 'warning') valClass = ' detail-value-warning';
+                html += '<div class="detail-row">';
+                html += '<div class="detail-label">' + f.label + '</div>';
+                if (f.label === '\u89e3\u8aac' && f.value && f.value.indexOf('\u3010') >= 0 && typeof buildDescTabs === 'function') {
+                    html += '<div class="detail-value">' + buildDescTabs(f.value, 'hover_desc_' + (_descIdx++)) + '</div>';
+                } else {
+                    html += '<div class="detail-value' + valClass + '">' + (f.value || '-') + '</div>';
+                }
+                html += '</div>';
+            });
+        }
+        hoverEl.innerHTML = html;
+        hoverEl.classList.add('visible');
+        backdrop.classList.add('visible');
+        document.getElementById('imp-hover-close-btn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            forceHide();
+        });
+    }
+
+    function forceHide() {
+        currentKey = null;
+        hoverEl.classList.remove('visible');
+        backdrop.classList.remove('visible');
+    }
+
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.safe-toggle-btn') || e.target.closest('.important-checkbox')) return;
+        var row = e.target.closest('.imp-hover-row');
+        if (row) {
+            var key = row.getAttribute('data-imp-key');
+            var tab = row.getAttribute('data-imp-tab');
+            if (key) showDetail(key, tab);
+            return;
+        }
+        if (e.target === backdrop) forceHide();
+    });
+})();
 
 </script>
 
