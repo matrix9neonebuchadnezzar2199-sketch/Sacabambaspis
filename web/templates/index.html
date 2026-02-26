@@ -2428,12 +2428,27 @@ function renderTableGeneric(id, data, keys, keyword, tab, rowFn) {
         el.innerHTML = '<tr class="empty-row"><td colspan="' + colCount + '">該当データなし</td></tr>';
         return;
     }
-    el.innerHTML = list.map(i => {
+    el.innerHTML = list.map((i, idx) => {
         const result = rowFn(i);
         let rowClass = i.is_self ? 'row-self' : (i.status === 'DANGER' ? 'row-danger' : (i.status === 'WARNING' ? 'row-warning' : ''));
         if (result.extra && result.extra.includes('row-important')) rowClass = 'row-important';
-        return '<tr class="' + rowClass + '">' + result.html + '</tr>';
+        var uid = i._uid || '';
+        return '<tr class="' + rowClass + ' clickable-row" data-tab="' + tab + '" data-idx="' + idx + '" data-uid="' + uid + '" style="cursor:pointer;">' + result.html + '</tr>';
     }).join('');
+    // P36.5: row click -> detail
+    el.querySelectorAll('tr.clickable-row').forEach(function(tr) {
+        tr.addEventListener('click', function(e) {
+            if (e.target.closest('input,button,select,a,.safe-btn,.check-important')) return;
+            var t = tr.getAttribute('data-tab');
+            var idx2 = parseInt(tr.getAttribute('data-idx'), 10);
+            var uid2 = tr.getAttribute('data-uid');
+            if (uid2 && typeof openDetailModal === 'function') {
+                openDetailModal(t, uid2);
+            } else if (typeof openDetailModal === 'function') {
+                openDetailModal(t, idx2);
+            }
+        });
+    });
     // P25-A: Search highlight
     if (keyword) {
         el.querySelectorAll('td').forEach(function(td) {
@@ -2894,6 +2909,19 @@ function openDetailModal(tab, idxOrKey) {
         if (!entry) return;
         d = entry.data;
         actualTab = entry.tab;
+    } else if (typeof idxOrKey === 'number' && tab && allData) {
+        var _tdm = {
+            'logs': allData.eventlogs, 'proc': allData.processes,
+            'memory': allData.memory, 'persist': allData.persistence,
+            'network': allData.networks, 'evidence': allData.evidence,
+            'pca': allData.pca, 'ads': allData.ads, 'wsl': allData.wsl,
+            'cam': allData.cam, 'srum': allData.srum, 'recall': allData.recall
+        };
+        var _srcL = _tdm[tab];
+        if (_srcL && _srcL[idxOrKey]) {
+            d = _srcL[idxOrKey];
+            actualTab = tab;
+        } else { return; }
     } else {
         var mapEntry = importantItems.get(idxOrKey);
         if (!mapEntry) return;
@@ -2988,7 +3016,10 @@ function getDetailFields(tab, d) {
         case 'evidence': return [
             { label: 'ソース', value: d.source },
             { label: 'アーティファクト', value: d.artifact },
-            { label: '時刻', value: d.timestamp },
+            { label: '詳細', value: d.detail || '-' },
+            { label: '時刻', value: d.time || d.timestamp },
+            { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+            { label: '解説', value: d.desc || '-' },
             { label: '判定', value: statusText, type: statusType }
         ];
         case 'pca': return [
