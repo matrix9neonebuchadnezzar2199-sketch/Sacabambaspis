@@ -57,6 +57,25 @@ class ProcessCollector:
             "explorer.exe", "winlogon.exe", "smss.exe", "taskhostw.exe",
             "spoolsv.exe", "wininit.exe", "dllhost.exe", "conhost.exe",
         ]
+        # Rule-6: シングルトンプロセス（通常1つだけのプロセス）
+        self.singleton_procs = {
+            'lsass.exe': 1,
+            'services.exe': 1,
+            'wininit.exe': 1,
+            'csrss.exe': 2,     # セッション0 + セッション1
+            'smss.exe': 2,      # マスター + セッション用
+            'winlogon.exe': 2,
+            'lsm.exe': 1,
+            'spoolsv.exe': 1,
+        }
+
+        # Rule-8: 隠しウィンドウ引数
+        self.hidden_window_args = [
+            '-windowstyle hidden', '-w hidden', '-windowstyle h',
+            '-win hidden', '/b ', 'start /b', '-nowindow',
+            'vbscript:execute', 'wscript.shell',
+        ]
+
         self.typosquat_patterns = {
             "svchost.exe":  ["svch0st.exe", "scvhost.exe", "svchosl.exe",
                              "svchosts.exe", "svc_host.exe", "svchostt.exe"],
@@ -117,6 +136,49 @@ class ProcessCollector:
                 continue
             except Exception:
                 continue
+
+        # Rule-6: シングルトン検証
+        name_counts = {}
+        for entry in process_list:
+            n = entry['name'].lower()
+            name_counts[n] = name_counts.get(n, 0) + 1
+
+        for entry in process_list:
+            n = entry['name'].lower()
+            if n in self.singleton_procs:
+                expected = self.singleton_procs[n]
+                actual = name_counts.get(n, 0)
+                if actual > expected:
+                    if entry['status'] == 'SAFE':
+                        entry['status'] = 'WARNING'
+                        entry['reason'] = f"\u30b7\u30f3\u30b0\u30eb\u30c8\u30f3\u9055\u53cd: {n} ({actual}\u500b/{expected}\u500b\u6b63\u5e38)"
+                        entry['desc'] = build_tutor_desc(
+                            detection=(
+                                f"\u30d7\u30ed\u30bb\u30b9\u300c{entry['name']}\u300d\u304c{actual}\u500b\u5b9f\u884c\u3055\u308c\u3066\u3044\u307e\u3059\u3002"
+                                f"\u901a\u5e38\u306f{expected}\u500b\u3060\u3051\u304c\u6b63\u5e38\u3067\u3059\u3002\n"
+                                f"PID: {entry['pid']}\nPath: {entry['path']}"
+                            ),
+                            why_dangerous=(
+                                f"\u300c{entry['name']}\u300d\u306fWindows\u306e\u6838\u5fc3\u30d7\u30ed\u30bb\u30b9\u3067\u3001"
+                                f"\u901a\u5e38{expected}\u500b\u3060\u3051\u304c\u52d5\u4f5c\u3057\u307e\u3059\u3002"
+                                "\u8907\u6570\u5b58\u5728\u3059\u308b\u5834\u5408\u3001\u30de\u30eb\u30a6\u30a7\u30a2\u304c"
+                                "\u30b7\u30b9\u30c6\u30e0\u30d7\u30ed\u30bb\u30b9\u306b\u507d\u88c5\u3057\u3066\u3044\u308b"
+                                "\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002"
+                                "Emotet\u3084Cobalt Strike\u306f\u3053\u306e\u624b\u6cd5\u3092\u4f7f\u7528\u3057\u307e\u3059\u3002"
+                            ),
+                            mitre_key="proc_masquerade",
+                            normal_vs_abnormal=(
+                                f"\u3010\u6b63\u5e38\u3011{entry['name']}\u306f{expected}\u500b\u3060\u3051\u5b58\u5728\u3002\n"
+                                f"\u3010\u7570\u5e38\u3011{actual}\u500b\u5b58\u5728\u3057\u3066\u3044\u308b\u3002\u30d1\u30b9\u3092\u78ba\u8a8d\u3002\n"
+                                "\u3010\u5224\u65ad\u57fa\u6e96\u3011\u5404\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u30d5\u30a1\u30a4\u30eb\u30d1\u30b9\u304cSystem32\u304b\u78ba\u8a8d\u3002"
+                            ),
+                            next_steps=[
+                                "\u5404\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u30d5\u30a1\u30a4\u30eb\u30d1\u30b9\u3092\u78ba\u8a8d\u3059\u308b",
+                                "System32\u4ee5\u5916\u304b\u3089\u5b9f\u884c\u3055\u308c\u3066\u3044\u308b\u3082\u306e\u304c\u306a\u3044\u304b\u78ba\u8a8d",
+                                "\u30c7\u30b8\u30bf\u30eb\u7f72\u540d\u3092\u78ba\u8a8d\u3059\u308b",
+                            ],
+                            status="WARNING",
+                        )
 
         return sorted(process_list, key=lambda x: x['pid'])
 
@@ -390,6 +452,83 @@ class ProcessCollector:
                                 "ダウンロードされたファイルの保存先を特定し内容を確認する",
                             ],
                             status="DANGER",
+                        ),
+                    ))
+                    break
+
+        # Rule-7: 隠しウィンドウプロセス
+        if cmdline and isinstance(cmdline, list):
+            cmd_str_full = ' '.join(cmdline).lower()
+            for hidden_arg in self.hidden_window_args:
+                if hidden_arg in cmd_str_full:
+                    findings.append((
+                        80, "WARNING",
+                        f"\u96a0\u3057\u30a6\u30a3\u30f3\u30c9\u30a6\u5b9f\u884c: {hidden_arg.strip()}",
+                        build_tutor_desc(
+                            detection=(
+                                f"\u30d7\u30ed\u30bb\u30b9\u300c{info['name']}\u300d(PID:{info['pid']})\u304c"
+                                f"\u30a6\u30a3\u30f3\u30c9\u30a6\u3092\u975e\u8868\u793a\u306b\u3057\u3066\u5b9f\u884c\u3055\u308c\u3066\u3044\u307e\u3059\u3002\n"
+                                f"\u691c\u77e5\u5f15\u6570: {hidden_arg.strip()}\n"
+                                f"\u30b3\u30de\u30f3\u30c9\u30e9\u30a4\u30f3: {' '.join(cmdline)[:200]}"
+                            ),
+                            why_dangerous=(
+                                "\u30a6\u30a3\u30f3\u30c9\u30a6\u3092\u975e\u8868\u793a\u306b\u3057\u3066\u30d7\u30ed\u30b0\u30e9\u30e0\u3092\u5b9f\u884c\u3059\u308b\u306e\u306f\u3001"
+                                "\u653b\u6483\u8005\u304c\u30e6\u30fc\u30b6\u30fc\u306b\u6c17\u3065\u304b\u308c\u305a\u306b\u30de\u30eb\u30a6\u30a7\u30a2\u3092\u52d5\u4f5c\u3055\u305b\u308b\u5e38\u5957\u624b\u6bb5\u3067\u3059\u3002"
+                                "\u7279\u306bPowerShell\u3068\u7d44\u307f\u5408\u308f\u305b\u308b\u5834\u5408\u3001"
+                                "C2\u901a\u4fe1\u3084\u30da\u30a4\u30ed\u30fc\u30c9\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3092\u96a0\u5bc6\u306b\u5b9f\u884c\u3057\u3066\u3044\u308b\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002"
+                            ),
+                            mitre_key="proc_hidden",
+                            normal_vs_abnormal=(
+                                "\u3010\u6b63\u5e38\u3011\u4e00\u90e8\u306e\u7ba1\u7406\u30b9\u30af\u30ea\u30d7\u30c8\u304c-WindowStyle Hidden\u3092\u4f7f\u7528\u3002\n"
+                                "\u3010\u7570\u5e38\u3011\u4e88\u5b9a\u5916\u306e\u975e\u8868\u793aPowerShell/cmd\u3002\n"
+                                "\u3010\u5224\u65ad\u57fa\u6e96\u3011IT\u90e8\u9580\u306b\u78ba\u8a8d\u3057\u3001\u627f\u8a8d\u6e08\u307f\u30b9\u30af\u30ea\u30d7\u30c8\u304b\u78ba\u8a8d\u3002"
+                            ),
+                            next_steps=[
+                                "\u30b3\u30de\u30f3\u30c9\u30e9\u30a4\u30f3\u5168\u6587\u3092\u78ba\u8a8d\u3059\u308b",
+                                "\u30a4\u30d9\u30f3\u30c8\u30ed\u30b0(4104)\u3067\u5b9f\u884c\u5185\u5bb9\u3092\u78ba\u8a8d\u3059\u308b",
+                                "\u89aa\u30d7\u30ed\u30bb\u30b9\u3092\u78ba\u8a8d\u3059\u308b",
+                            ],
+                            status="WARNING",
+                        ),
+                    ))
+                    break
+
+        # Rule-8: 不審パスの未署名プロセス（非System32/ProgramFiles）
+        standard_paths = [
+            'c:\\windows', 'c:\\program files', 'c:\\program files (x86)',
+        ]
+        is_standard = any(path_lower.startswith(sp) for sp in standard_paths)
+        if not is_standard and path_lower.endswith('.exe'):
+            for sp in self.suspicious_paths:
+                if sp in path_lower:
+                    findings.append((
+                        75, "WARNING",
+                        f"\u4e0d\u5be9\u30d1\u30b9\u306e\u5b9f\u884c\u30d7\u30ed\u30bb\u30b9: {info['name']}",
+                        build_tutor_desc(
+                            detection=(
+                                f"\u30d7\u30ed\u30bb\u30b9\u300c{info['name']}\u300d(PID:{info['pid']})\u304c"
+                                f"\u4e0d\u5be9\u306a\u30d5\u30a9\u30eb\u30c0\u304b\u3089\u5b9f\u884c\u3055\u308c\u3066\u3044\u307e\u3059\u3002\n"
+                                f"\u30d1\u30b9: {info['exe']}"
+                            ),
+                            why_dangerous=(
+                                f"\u6b63\u898f\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u306fProgram Files\u3084System32\u304b\u3089"
+                                "\u5b9f\u884c\u3055\u308c\u308b\u306e\u304c\u6a19\u6e96\u3067\u3059\u3002"
+                                "Temp\u3001AppData\u3001Downloads\u7b49\u304b\u3089\u5b9f\u884c\u3055\u308c\u3066\u3044\u308b\u30d7\u30ed\u30bb\u30b9\u306f\u3001"
+                                "\u30de\u30eb\u30a6\u30a7\u30a2\u304c\u4e00\u6642\u30d5\u30a9\u30eb\u30c0\u306b\u914d\u7f6e\u3055\u308c\u3066"
+                                "\u5b9f\u884c\u3055\u308c\u3066\u3044\u308b\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002"
+                            ),
+                            mitre_key="proc_suspicious_path",
+                            normal_vs_abnormal=(
+                                "\u3010\u6b63\u5e38\u3011\u30a4\u30f3\u30b9\u30c8\u30fc\u30e9\u3084\u30a2\u30c3\u30d7\u30c7\u30fc\u30bf\u304c\u4e00\u6642\u7684\u306bTemp\u3092\u4f7f\u7528\u3002\n"
+                                "\u3010\u7570\u5e38\u3011\u898b\u899a\u3048\u306e\u306a\u3044EXE\u304cTemp/Downloads/AppData\u304b\u3089\u5b9f\u884c\u3002\n"
+                                "\u3010\u5224\u65ad\u57fa\u6e96\u3011\u30d5\u30a1\u30a4\u30eb\u306e\u30c7\u30b8\u30bf\u30eb\u7f72\u540d\u3068\u4f5c\u6210\u6642\u671f\u3092\u78ba\u8a8d\u3002"
+                            ),
+                            next_steps=[
+                                "\u30d5\u30a1\u30a4\u30eb\u306e\u30c7\u30b8\u30bf\u30eb\u7f72\u540d\u3092\u78ba\u8a8d\u3059\u308b",
+                                "\u30cf\u30c3\u30b7\u30e5\u5024\u3092VirusTotal\u3067\u691c\u7d22\u3059\u308b",
+                                "\u30d5\u30a1\u30a4\u30eb\u306e\u4f5c\u6210\u65e5\u6642\u3092\u78ba\u8a8d\u3059\u308b",
+                            ],
+                            status="WARNING",
                         ),
                     ))
                     break

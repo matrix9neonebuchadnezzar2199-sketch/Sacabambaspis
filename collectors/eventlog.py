@@ -365,6 +365,73 @@ class EventLogCollector:
         }
 
         # ERR-EVL-002: メッセージ内容から追加リスクを判定するキーワード
+            4698: {
+                "base_status": "WARNING",
+                "label": "タスク作成",
+                "tutor_desc": {
+                    "beginner": "スケジュールタスクが新規作成されました。マルウェアはタスクスケジューラを使って自動実行を設定することがあります。",
+                    "intermediate": "Event ID 4698はタスクスケジューラに新規タスクが登録されたことを示します。永続化手法として頻繁に悪用されます。",
+                    "advanced": "Scheduled Task作成イベント。XML内のActionフィールドを確認し、実行ファイルが正規か検証してください。MITRE ATT&CK T1053.005。"
+                },
+                "next_steps": "タスクの実行パスと引数を確認し、不審なファイルが指定されていないか検証してください。",
+                "mitre": "pers_schtask"
+            },
+            4720: {
+                "base_status": "WARNING",
+                "label": "ユーザーアカウント作成",
+                "tutor_desc": {
+                    "beginner": "新しいユーザーアカウントが作成されました。身に覚えがない場合、攻撃者がバックドア用に作成した可能性があります。",
+                    "intermediate": "Event ID 4720は新規ローカルアカウント作成を示します。攻撃者は権限昇格後にバックドア用アカウントを作成することがあります。",
+                    "advanced": "ローカルアカウント作成イベント。SubjectUserNameとTargetUserNameを確認し、誰が作成したか検証。MITRE ATT&CK T1136.001。"
+                },
+                "next_steps": "作成されたアカウント名と作成者を確認し、管理者グループに追加されていないか確認してください。",
+                "mitre": "net_account_anomaly"
+            },
+            4732: {
+                "base_status": "DANGER",
+                "label": "管理者グループ追加",
+                "tutor_desc": {
+                    "beginner": "ユーザーが管理者グループに追加されました。最高権限の付与であり、身に覚えがなければ危険です。",
+                    "intermediate": "Event ID 4732はセキュリティ有効ローカルグループへのメンバー追加を示します。Administratorsグループへの追加は特に危険です。",
+                    "advanced": "ローカルグループメンバー追加イベント。TargetUserNameがAdministrators/Remote Desktop Usersか確認。MITRE ATT&CK T1098。"
+                },
+                "next_steps": "追加されたユーザーとグループ名を確認し、不正な権限昇格がないか検証してください。",
+                "mitre": "evt_priv_escalation"
+            },
+            4697: {
+                "base_status": "WARNING",
+                "label": "サービスインストール",
+                "tutor_desc": {
+                    "beginner": "新しいサービスがインストールされました。マルウェアはサービスとして登録して永続化することがあります。",
+                    "intermediate": "Event ID 4697はSecurityログのサービスインストールイベントです。7045と併せて監視することで網羅的に検出できます。",
+                    "advanced": "Securityログのサービスインストールイベント。ServiceFileNameのパスを確認し、正規パスか検証。MITRE ATT&CK T1543.003。"
+                },
+                "next_steps": "サービスの実行パスを確認し、cmd/powershell経由や一時フォルダからの実行でないか検証してください。",
+                "mitre": "evt_new_service"
+            },
+            1116: {
+                "base_status": "DANGER",
+                "label": "Defenderマルウェア検出",
+                "tutor_desc": {
+                    "beginner": "Windows Defenderがマルウェアを検出しました。ウイルス対策ソフトが脅威を見つけたということです。",
+                    "intermediate": "Windows DefenderのEvent ID 1116はマルウェア検出を示します。検出名、ファイルパス、アクションを確認してください。",
+                    "advanced": "Defender Operationalログの脅威検出イベント。ThreatName、Path、Actionフィールドを解析し、検出されたマルウェアの種類と影響を評価。"
+                },
+                "next_steps": "検出されたファイルをVirusTotalで確認し、検出名からマルウェアの種類を特定してください。",
+                "mitre": "evt_malware_detect"
+            },
+            1117: {
+                "base_status": "WARNING",
+                "label": "Defenderアクション実行",
+                "tutor_desc": {
+                    "beginner": "Windows Defenderが脅威に対してアクションを実行しました（削除・検疫等）。",
+                    "intermediate": "Event ID 1117はDefenderが脅威に対して取ったアクションを示します。成功したか確認してください。",
+                    "advanced": "Defenderアクション実行イベント。ActionがQuarantine/Remove/Allowのいずれか確認。Allowの場合は除外設定の悪用の可能性も。"
+                },
+                "next_steps": "Defenderのアクション結果を確認し、検疫が成功したか、または失敗したか検証してください。",
+                "mitre": "evt_malware_detect"
+            },
+
         self.danger_keywords_in_message = [
             'mimikatz', 'invoke-expression', 'iex ', 'downloadstring',
             'downloadfile', 'net.webclient', 'encodedcommand',
@@ -397,13 +464,19 @@ class EventLogCollector:
         '4688': 'evt_process_create',
         '7045': 'evt_new_service',
         '4104': 'evt_powershell',
+        '4698': 'pers_schtask',
+        '4720': 'net_account_anomaly',
+        '4732': 'evt_priv_escalation',
+        '4697': 'evt_new_service',
+        '1116': 'evt_malware_detect',
+        '1117': 'evt_malware_detect',
         '11724': 'evt_app_uninstall',
     }
 
     def scan(self):
         logs = []
         try:
-            logs.extend(self._get_events('Security', [1102, 4624, 4625, 4672, 4688], 50))
+            logs.extend(self._get_events('Security', [1102, 4624, 4625, 4672, 4688, 4698, 4720, 4732, 4697], 50))
         except Exception:
             print("[!] Securityログの取得に失敗 (スキップ)")
 
@@ -421,6 +494,12 @@ class EventLogCollector:
             logs.extend(self._get_events('Microsoft-Windows-PowerShell/Operational', [4104], 50))
         except Exception:
             print("[!] PowerShellログの取得に失敗 (スキップ)")
+
+        # Defender Operational
+        try:
+            logs.extend(self._get_events('Microsoft-Windows-Windows Defender/Operational', [1116, 1117], 50))
+        except Exception:
+            print("[!] Defenderログの取得に失敗 (スキップ)")
 
         return sorted(logs, key=lambda x: x['time'], reverse=True)
 
@@ -578,6 +657,94 @@ class EventLogCollector:
         # --- 1102: ログ消去は常にDANGER ---
         if evt_id == '1102':
             return ("DANGER", base_desc, base_tutor)
+
+
+        # --- 4698: タスク作成 ---
+        if evt_id == '4698':
+            is_danger = any(pat in msg_lower for pat in self.suspicious_service_patterns)
+            if is_danger:
+                return (
+                    "DANGER",
+                    f"{base_desc} - 不審なタスクが作成されました",
+                    base_tutor + build_tutor_desc(
+                        detection='タスクスケジューラに不審なタスクが作成されました（Event ID: 4698）。',
+                        why_dangerous='マルウェアはタスクスケジューラを使って永続化します。実行パスにcmd/powershell/一時フォルダが含まれています。',
+                        mitre_key='pers_schtask',
+                        status='DANGER',
+                    ),
+                )
+            return (base_level, base_desc, base_tutor)
+
+        # --- 4720: アカウント作成 ---
+        if evt_id == '4720':
+            return (
+                "WARNING",
+                f"{base_desc} - 新規ユーザーアカウントが作成されました",
+                base_tutor + build_tutor_desc(
+                    detection='新規ローカルアカウントが作成されました（Event ID: 4720）。',
+                    why_dangerous='攻撃者は権限昇格後にバックドア用アカウントを作成することがあります。身に覚えがなければ要調査。',
+                    mitre_key='net_account_anomaly',
+                    status='WARNING',
+                ),
+            )
+
+        # --- 4732: グループメンバー追加 ---
+        if evt_id == '4732':
+            is_admin = "administrators" in msg_lower or "remote desktop" in msg_lower
+            status = "DANGER" if is_admin else "WARNING"
+            return (
+                status,
+                f"{base_desc} - セキュリティグループにメンバー追加",
+                base_tutor + build_tutor_desc(
+                    detection='セキュリティグループにメンバーが追加されました（Event ID: 4732）。',
+                    why_dangerous='Administratorsグループへの追加は最高権限の付与です。不正な権限昇格の可能性があります。',
+                    mitre_key='evt_priv_escalation',
+                    status=status,
+                ),
+            )
+
+        # --- 4697: サービスインストール (Security) ---
+        if evt_id == '4697':
+            is_danger = any(pat in msg_lower for pat in self.suspicious_service_patterns)
+            status = "DANGER" if is_danger else "WARNING"
+            return (
+                status,
+                f"{base_desc} - サービスインストール(Securityログ)",
+                base_tutor + build_tutor_desc(
+                    detection='サービスがインストールされました（Event ID: 4697 - Securityログ）。',
+                    why_dangerous='マルウェアはサービスとして登録して永続化します。7045と併せて確認してください。',
+                    mitre_key='evt_new_service',
+                    status=status,
+                ),
+            )
+
+        # --- 1116: Defender マルウェア検出 ---
+        if evt_id == '1116':
+            return (
+                "DANGER",
+                f"{base_desc} - Defenderがマルウェアを検出",
+                base_tutor + build_tutor_desc(
+                    detection='Windows Defenderがマルウェアを検出しました（Event ID: 1116）。',
+                    why_dangerous='ウイルス対策ソフトが脅威を検出しました。検出名からマルウェアの種類を特定し影響範囲を確認してください。',
+                    mitre_key='evt_malware_detect',
+                    status='DANGER',
+                ),
+            )
+
+        # --- 1117: Defender アクション実行 ---
+        if evt_id == '1117':
+            action_failed = "failed" in msg_lower or "error" in msg_lower
+            status = "DANGER" if action_failed else "WARNING"
+            return (
+                status,
+                f"{base_desc} - Defenderアクション実行",
+                base_tutor + build_tutor_desc(
+                    detection='Defenderが脅威に対しアクションを実行しました（Event ID: 1117）。',
+                    why_dangerous='検疫失敗やAllow設定は除外設定の悪用の可能性があります。アクション結果を確認してください。',
+                    mitre_key='evt_malware_detect',
+                    status=status,
+                ),
+            )
 
         # --- その他: メッセージ内の危険キーワードスキャン ---
         for kw in self.danger_keywords_in_message:
