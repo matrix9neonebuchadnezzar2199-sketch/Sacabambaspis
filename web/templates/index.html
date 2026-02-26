@@ -2303,6 +2303,7 @@ function renderTables(keyword) {
             '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
             '<td class="cell-reason">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
             '<td>' + i.timestamp + '</td>' +
+            '<td>' + (i.sig_signer ? '\u2705 ' + i.sig_signer : (i.sig_status === 'NotFound' ? '\u2753 \u30d5\u30a1\u30a4\u30eb\u524a\u9664\u6e08\u307f' : (i.sig_status ? '\u274c ' + i.sig_status : '-'))) + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
     });
@@ -3024,6 +3025,8 @@ function getDetailFields(tab, d) {
             { label: '時刻', value: d.time || d.timestamp },
             { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
             { label: '解説', value: d.desc || '-' },
+            { label: '署名状態', value: d.sig_status || '未検証', type: d.sig_status === 'Valid' ? 'safe' : (d.sig_status ? 'danger' : '') },
+            { label: '署名者', value: d.sig_signer || '-' },
             { label: '判定', value: statusText, type: statusType }
         ];
         case 'pca': return [

@@ -10,6 +10,11 @@ import json
 from datetime import datetime, timedelta, timezone
 from utils.tutor_template import build_tutor_desc
 
+try:
+    from utils.signature import verify_signature, is_trusted_signer, is_hardcore_tool, extract_signer_name, clear_cache
+except ImportError:
+    verify_signature = None
+
 
 class EvidenceCollector:
     """実行痕跡解析 - フォレンジック5大アーティファクト
@@ -63,6 +68,7 @@ class EvidenceCollector:
     # メインスキャン
     # ==============================================================
     def scan(self):
+        if clear_cache: clear_cache()  # 署名キャッシュリセット
         evidence = []
         evidence.extend(self._scan_userassist())
         evidence.extend(self._scan_prefetch())
@@ -74,127 +80,152 @@ class EvidenceCollector:
     # ==============================================================
     # 共通: 実行パス解析
     # ==============================================================
+
+    def _is_trusted_path(self, path_lower):
+        """Layer 2: 信頼パスかどうか判定"""
+        trusted_dirs = [
+            'c:\\windows\\system32\\',
+            'c:\\windows\\syswow64\\',
+            'c:\\program files\\',
+            'c:\\program files (x86)\\',
+            'c:\\windows\\winsxs\\',
+            'c:\\windows\\microsoft.net\\',
+        ]
+        return any(path_lower.startswith(d) for d in trusted_dirs)
+
     def _analyze_exe_path(self, exe_path, source_name, extra_info=""):
-        """実行パスから危険度を判定（全アーティファクト共通ロジック）"""
+        """実行パスから危険度を判定（Layer 1-3: 完全一致 + 信頼パス + 署名検証）"""
         path_lower = exe_path.lower()
         basename = os.path.basename(path_lower).replace('.exe', '')
 
-        # Rule 1: 攻撃ツール
+        sig_status = ''
+        sig_signer = ''
+        sig_org = ''
+        sig_trusted = False
+
+        # Layer 3: 署名検証（ファイルが存在する場合のみ）
+        if verify_signature and os.path.isfile(exe_path):
+            sig_status, sig_signer = verify_signature(exe_path)
+            sig_org = extract_signer_name(sig_signer)
+            sig_trusted = (sig_status == 'Valid' and is_trusted_signer(sig_signer))
+
+        # Layer 1: 攻撃ツール（完全一致）
         for tool in self.attack_tools:
             tb = tool.replace('.exe', '')
-            if tb in basename or f'\\{tool}' in path_lower or f'\\{tb}.exe' in path_lower:
-                return ("DANGER", f"攻撃ツール検知: {tool}",
-                    build_tutor_desc(
-                        detection=(
-                            f"{source_name}に攻撃ツール「{tool}」の実行痕跡が残っています。\n"
-                            f"パス: {exe_path}\n{extra_info}"
-                        ),
-                        why_dangerous=(
-                            f"{source_name}はOSが自動的に記録する実行履歴です。"
-                            f"攻撃ツール「{tool}」がこのPCで実行されたことを意味します。"
-                            "攻撃者がツールのEXEファイルを削除しても、この痕跡は残ります。"
-                            "つまり「消えたマルウェア」の実行証拠です。"
-                        ),
-                        mitre_key="evid_attack_tool",
-                        normal_vs_abnormal=(
-                            "【正常】攻撃ツールの実行痕跡が存在することは正常ではありません。\n"
-                            "【異常】100%異常です。インシデント対応が必要です。\n"
-                            "【判断基準】攻撃ツールの実行痕跡は誤検知の可能性が極めて低い。"
-                        ),
-                        next_steps=[
-                            "該当パスにファイルがまだ存在するか確認する",
-                            "存在する場合ハッシュ値をVirusTotalで検索する",
-                            "他のアーティファクト（Prefetch, BAM等）で実行時刻を特定する",
-                            "イベントログ(4688)で実行者とコマンドラインを確認する",
-                        ],
-                        status="DANGER"))
-
-        # Rule 2: LOLBin + 不審パス
-        found_lolbin = None
-        for lb in self.lolbins:
-            if lb.replace('.exe', '') in basename:
-                found_lolbin = lb
-                break
-        if found_lolbin:
-            for sp in self.suspicious_paths:
-                if sp in path_lower:
-                    return ("WARNING", f"LOLBin不審パス: {found_lolbin}",
+            if tb == basename or f'\\{tool}' in path_lower or f'\\{tb}.exe' in path_lower:
+                if is_hardcore_tool(tb) or not sig_trusted:
+                    return ("DANGER", f"攻撃ツール検知: {tool}",
                         build_tutor_desc(
                             detection=(
-                                f"{source_name}にLOLBin「{found_lolbin}」が不審パスから"
-                                f"実行された痕跡があります。\nパス: {exe_path}\n{extra_info}"
+                                f"{source_name}に攻撃ツール「{tool}」の実行痕跡が残っています。\n"
+                                f"パス: {exe_path}\n{extra_info}"
                             ),
                             why_dangerous=(
-                                f"LOLBin（Windows標準ツール）が不審なフォルダから実行されています。"
-                                "攻撃者がスクリプトファイルを配置し、LOLBin経由で実行した可能性があります。"
+                                f"{source_name}はOSが自動的に記録する実行履歴です。"
+                                f"攻撃ツール「{tool}」がこのPCで実行されたことを意味します。"
+                                "攻撃者がツールのEXEファイルを削除しても、この痕跡は残ります。"
+                                "つまり「消えたマルウェア」の実行証拠です。"
                             ),
+                            mitre_key="evid_attack_tool",
                             normal_vs_abnormal=(
-                                "【正常】LOLBinはSystem32等の標準パスから実行される。\n"
-                                "【異常】Temp/Public/AppData等の不審パスからの実行。"
+                                "【正常】攻撃ツールの実行痕跡が存在することは正常ではありません。\n"
+                                "【異常】100%異常です。インシデント対応が必要です。"
                             ),
                             next_steps=[
-                                "実行されたスクリプトやファイルの内容を確認する",
-                                "イベントログ(4104)でPowerShellの実行内容を確認する",
+                                "該当パスにファイルがまだ存在するか確認する",
+                                "存在する場合ハッシュ値をVirusTotalで検索する",
+                                "他のアーティファクト（Prefetch, BAM等）で実行時刻を特定する",
+                                "イベントログ(4688)で実行者とコマンドラインを確認する",
                             ],
-                            status="WARNING"))
+                            status="DANGER"),
+                        sig_status, sig_org)
+                else:
+                    return ("SAFE",
+                        f"攻撃ツール名一致だが正規署名済み: {sig_org}",
+                        f"ファイル名が攻撃ツール「{tool}」と一致しますが、"
+                        f"正規の署名({sig_org})が確認されたため安全と判定しました。",
+                        sig_status, sig_org)
 
-        # Rule 3: 偵察コマンド
-        for recon in self.recon_tools:
-            rb = recon.replace('.exe', '')
-            if rb in basename:
-                return ("WARNING", f"偵察コマンド: {recon}",
-                    build_tutor_desc(
-                        detection=(
-                            f"{source_name}に偵察コマンド「{recon}」の実行痕跡があります。\n"
-                            f"パス: {exe_path}\n{extra_info}"
-                        ),
-                        why_dangerous=(
-                            "偵察コマンドは攻撃者が侵入後にネットワーク構成やアカウント情報を"
-                            "収集するために使用します。単体では正常な管理作業の可能性もありますが、"
-                            "短時間に複数の偵察コマンドが実行されている場合は攻撃の可能性があります。"
-                        ),
-                        normal_vs_abnormal=(
-                            "【正常】管理者がトラブルシューティングで使用。\n"
-                            "【異常】短時間に複数の偵察コマンドが連続実行。\n"
-                            "【判断基準】同時刻帯の他のアーティファクトと照合する。"
-                        ),
-                        next_steps=[
-                            "同時刻帯に他の偵察コマンドの痕跡がないか確認する",
-                            "イベントログ(4688)でコマンドライン引数を確認する",
-                        ],
-                        status="WARNING"))
+        # Layer 2: LOLBin + 不審パス
+        found_lolbin = None
+        for lb in self.lolbins:
+            if lb.replace('.exe', '') == basename:
+                found_lolbin = lb
+                break
 
-        # Rule 4: 不審パスからの実行
+        suspicious_path = False
         for sp in self.suspicious_paths:
             if sp in path_lower:
-                return ("WARNING", f"不審パスからの実行: {sp.strip(chr(92))}",
+                suspicious_path = True
+                break
+
+        if found_lolbin and suspicious_path:
+            if sig_trusted:
+                return ("INFO",
+                    f"LOLBin({found_lolbin}) 不審パスだが署名済み: {sig_org}",
+                    f"LOLBin「{found_lolbin}」が不審なパスで検出されましたが、"
+                    f"正規署名({sig_org})が確認されました。念のため確認を推奨します。",
+                    sig_status, sig_org)
+            return ("WARNING", f"LOLBin不審実行: {found_lolbin}",
+                build_tutor_desc(
+                    detection=(
+                        f"{source_name}でLOLBin「{found_lolbin}」が不審なパスから実行された痕跡です。\n"
+                        f"パス: {exe_path}\n{extra_info}"
+                    ),
+                    why_dangerous=(
+                        "LOLBin（Living Off the Land Binary）は正規のWindows標準ツールですが、"
+                        "攻撃者が悪用することがあります。特に通常と異なるパスからの実行は疑わしいです。"
+                    ),
+                    mitre_key="evid_lolbin",
+                    next_steps=[
+                        "実行パスが正規のSystem32以外か確認する",
+                        "同時刻のイベントログ(4688)でコマンドライン引数を確認する",
+                        "親プロセスを特定し正当な実行チェーンか検証する",
+                    ],
+                    status="WARNING"),
+                sig_status, sig_org)
+
+        # Layer 2b: 信頼パス + 署名済み → SAFE
+        if self._is_trusted_path(path_lower) and sig_trusted:
+            return ("SAFE", f"正規署名済み: {sig_org}",
+                f"{source_name}の実行痕跡です。正規の署名({sig_org})と"
+                f"信頼されたパスが確認されたため、安全と判定しました。",
+                sig_status, sig_org)
+
+        # Layer 2c: 信頼パス内だが未署名
+        if self._is_trusted_path(path_lower) and not sig_trusted:
+            if sig_status == 'NotFound':
+                return ("INFO", f"信頼パス（ファイル削除済み）",
+                    f"{source_name}の実行痕跡です。信頼パス内ですがファイルが"
+                    f"既に削除されているため署名を確認できませんでした。",
+                    sig_status, sig_org)
+            return ("INFO", f"信頼パス（署名未確認: {sig_status}）",
+                f"{source_name}の実行痕跡です。信頼パス内ですが"
+                f"署名の検証結果は「{sig_status}」でした。",
+                sig_status, sig_org)
+
+        # Rule 3: 偵察コマンド
+        for rc in self.recon_commands:
+            if rc == basename:
+                return ("INFO", f"偵察コマンド: {rc}",
                     build_tutor_desc(
-                        detection=(
-                            f"{source_name}に不審なフォルダからプログラムが実行された"
-                            f"痕跡があります。\nパス: {exe_path}\n{extra_info}"
-                        ),
-                        why_dangerous=(
-                            f"「{sp.strip(chr(92))}」はユーザー権限で書き込めるフォルダです。"
-                            "正規のプログラムはProgram FilesやSystem32から実行されるのが標準です。"
-                            "マルウェアはこれらの一時フォルダに配置されて実行されることが多いです。"
-                        ),
-                        normal_vs_abnormal=(
-                            "【正常】インストーラーやアップデータが一時的に使用。\n"
-                            "【異常】見覚えのないEXEが不審パスから実行されている。"
-                        ),
-                        next_steps=[
-                            "該当パスにファイルがまだ存在するか確認する",
-                            "ファイルのデジタル署名を確認する",
-                            "ハッシュ値をVirusTotalで検索する",
-                        ],
-                        status="WARNING"))
+                        detection=f"{source_name}で偵察コマンド「{rc}」の実行痕跡が見つかりました。",
+                        why_dangerous="偵察コマンドは正規利用もありますが、攻撃者が情報収集に使うこともあります。",
+                        mitre_key="evid_recon",
+                        next_steps=["同時刻の他コマンド実行を確認する", "実行者アカウントを特定する"],
+                        status="INFO"),
+                    sig_status, sig_org)
 
-        # Rule 5: 正常
-        return ("SAFE", "", "")
+        # デフォルト: 署名があればSAFE、なければINFO
+        if sig_trusted:
+            return ("SAFE", f"正規署名済み: {sig_org}",
+                f"正規の署名({sig_org})が確認されました。",
+                sig_status, sig_org)
 
-    # ==============================================================
-    # 1. UserAssist 解析
-    # ==============================================================
+        return ("INFO", "実行痕跡",
+            f"{source_name}に実行痕跡が記録されています。",
+            sig_status, sig_org)
+
     def _scan_userassist(self):
         results = []
         sub_key = r"Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
@@ -221,7 +252,11 @@ class EvidenceCollector:
                                     extra = f"実行回数: {run_count}回"
                                     if timestamp_str:
                                         extra += f"\n最終実行: {timestamp_str}"
-                                    status, reason, desc = self._analyze_exe_path(
+                                    result = self._analyze_exe_path(
+                                    if len(result) == 5:
+                                        status, reason, desc, sig_st, sig_name = result
+                                    else:
+                                        status, reason, desc = result; sig_st = ""; sig_name = ""
                                         decoded, "UserAssist (レジストリ)", extra)
                                     if status == "SAFE":
                                         continue
@@ -231,6 +266,8 @@ class EvidenceCollector:
                                         "detail": f"実行回数: {run_count}",
                                         "time": timestamp_str,
                                         "status": status,
+                                        'sig_status': sig_st,
+                                        'sig_signer': sig_name,
                                         "reason": reason,
                                         "desc": desc,
                                     })
@@ -325,7 +362,11 @@ class EvidenceCollector:
                 if dt_str:
                     extra += f"\n最終更新: {dt_str}"
 
-                status, reason, desc = self._analyze_exe_path(
+                result = self._analyze_exe_path(
+                if len(result) == 5:
+                    status, reason, desc, sig_st, sig_name = result
+                else:
+                    status, reason, desc = result; sig_st = ""; sig_name = ""
                     exe_name, "Prefetch (実行キャッシュ)", extra)
                 if status == "SAFE":
                     continue
@@ -335,6 +376,8 @@ class EvidenceCollector:
                     "detail": filename,
                     "time": dt_str,
                     "status": status,
+                    'sig_status': sig_st,
+                    'sig_signer': sig_name,
                     "reason": reason,
                     "desc": desc,
                 })
@@ -372,7 +415,11 @@ class EvidenceCollector:
                         if timestamp:
                             extra += f"\n最終更新: {timestamp}"
 
-                        status, reason, desc = self._analyze_exe_path(
+                        result = self._analyze_exe_path(
+                        if len(result) == 5:
+                            status, reason, desc, sig_st, sig_name = result
+                        else:
+                            status, reason, desc = result; sig_st = ""; sig_name = ""
                             exe_path, "ShimCache (AppCompatCache)", extra)
                         if status == "SAFE":
                             continue
@@ -382,6 +429,8 @@ class EvidenceCollector:
                             "detail": f"順序: {entry.get('position', '?')}",
                             "time": timestamp,
                             "status": status,
+                            'sig_status': sig_st,
+                            'sig_signer': sig_name,
                             "reason": reason,
                             "desc": desc,
                         })
@@ -585,7 +634,11 @@ class EvidenceCollector:
                                     if link_date:
                                         extra += f"リンク日: {link_date}"
 
-                                    status, reason, desc = self._analyze_exe_path(
+                                    result = self._analyze_exe_path(
+                                    if len(result) == 5:
+                                        status, reason, desc, sig_st, sig_name = result
+                                    else:
+                                        status, reason, desc = result; sig_st = ""; sig_name = ""
                                         lower_path, "Amcache (実行記録+ハッシュ)", extra)
                                     if status == "SAFE":
                                         continue
@@ -595,6 +648,8 @@ class EvidenceCollector:
                                         "detail": f"SHA1: {sha1}" if sha1 else app_name,
                                         "time": link_date,
                                         "status": status,
+                                        'sig_status': sig_st,
+                                        'sig_signer': sig_name,
                                         "reason": reason,
                                         "desc": desc,
                                     })
@@ -634,7 +689,11 @@ class EvidenceCollector:
                                                     pass
                                                 if not fpath:
                                                     continue
-                                                status, reason, desc = self._analyze_exe_path(
+                                                result = self._analyze_exe_path(
+                                                if len(result) == 5:
+                                                    status, reason, desc, sig_st, sig_name = result
+                                                else:
+                                                    status, reason, desc = result; sig_st = ""; sig_name = ""
                                                     fpath, "Amcache (File)", "")
                                                 if status != "SAFE":
                                                     results.append({
@@ -643,6 +702,8 @@ class EvidenceCollector:
                                                         "detail": entry_id,
                                                         "time": "",
                                                         "status": status,
+                                                        'sig_status': sig_st,
+                                                        'sig_signer': sig_name,
                                                         "reason": reason,
                                                         "desc": desc,
                                                     })
@@ -704,7 +765,11 @@ class EvidenceCollector:
                         data = [data]
                     for path in data:
                         if path:
-                            status, reason, desc = self._analyze_exe_path(
+                            result = self._analyze_exe_path(
+                            if len(result) == 5:
+                                status, reason, desc, sig_st, sig_name = result
+                            else:
+                                status, reason, desc = result; sig_st = ""; sig_name = ""
                                 str(path), "Amcache (Fallback)", "")
                             if status != "SAFE":
                                 results.append({
@@ -713,6 +778,8 @@ class EvidenceCollector:
                                     "detail": "PowerShell fallback",
                                     "time": "",
                                     "status": status,
+                                    'sig_status': sig_st,
+                                    'sig_signer': sig_name,
                                     "reason": reason,
                                     "desc": desc,
                                 })
@@ -779,7 +846,11 @@ class EvidenceCollector:
                                         if timestamp:
                                             extra += f"\n最終実行: {timestamp}"
 
-                                        status, reason, desc = self._analyze_exe_path(
+                                        result = self._analyze_exe_path(
+                                        if len(result) == 5:
+                                            status, reason, desc, sig_st, sig_name = result
+                                        else:
+                                            status, reason, desc = result; sig_st = ""; sig_name = ""
                                             exe_path, "BAM/DAM (実行記録)", extra)
                                         if status == "SAFE":
                                             continue
@@ -789,6 +860,8 @@ class EvidenceCollector:
                                             "detail": f"SID: {sid[:20]}...",
                                             "time": timestamp,
                                             "status": status,
+                                            'sig_status': sig_st,
+                                            'sig_signer': sig_name,
                                             "reason": reason,
                                             "desc": desc,
                                         })
