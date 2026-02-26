@@ -790,8 +790,8 @@ def _run_scan():
             _scan_status["step"] = step
             _scan_status["progress"] = progress
 
-        # 1. Process & DNA
-        update("プロセス & DNA 解析中...", 5)
+        # 1. Process & DNA & PE-sieve
+        update("プロセス & DNA & メモリインジェクション解析中...", 5)
         proc_c = ProcessCollector()
         procs = proc_c.scan()
         dna_c = DNACollector()

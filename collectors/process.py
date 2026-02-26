@@ -7,6 +7,15 @@ from datetime import datetime
 from utils.tutor_template import build_tutor_desc
 
 
+try:
+    from collectors.pe_sieve import is_available as pesieve_available, scan_process as pesieve_scan
+except ImportError:
+    try:
+        from pe_sieve import is_available as pesieve_available, scan_process as pesieve_scan
+    except ImportError:
+        def pesieve_available(): return False
+        def pesieve_scan(pid, **kw): return None
+
 class ProcessCollector:
     def __init__(self):
         self.legitimate_parents = {
@@ -179,6 +188,38 @@ class ProcessCollector:
                             ],
                             status="WARNING",
                         )
+
+        # P40: PE-sieve によるプロセスインジェクション検出
+        if pesieve_available():
+            try:
+                for entry in process_list:
+                    if entry['status'] in ('DANGER', 'WARNING'):
+                        pe_result = pesieve_scan(
+                            entry['pid'],
+                            process_name=entry.get('name', ''),
+                            process_path=entry.get('path', ''),
+                        )
+                        if pe_result and pe_result.get('status') not in ('SAFE', 'ERROR', None):
+                            entry['pe_sieve'] = pe_result
+                            # PE-sieve の判定が重い場合のみ昇格
+                            if pe_result['status'] == 'DANGER' and entry['status'] != 'DANGER':
+                                entry['status'] = 'DANGER'
+                            entry['reason'] += f" | PE-sieve: {pe_result['reason']}"
+                            if pe_result.get('desc'):
+                                entry['desc'] = entry.get('desc', '') + '\n\n--- PE-sieve検出 ---\n' + str(pe_result['desc'])
+                        elif pe_result and pe_result.get('status') == 'SAFE':
+                            # 安全確認も記録（解説用）
+                            entry['pe_sieve'] = {
+                                'status': 'SAFE',
+                                'reason': 'PE-sieve: メモリ異常なし',
+                                'total_scanned': pe_result.get('total_scanned', 0),
+                                'replaced': 0, 'implanted_pe': 0,
+                                'implanted_shc': 0, 'adjusted_shc': 0,
+                                'patched': 0, 'adjusted_patched': 0,
+                                'iat_hooked': 0, 'is_managed': pe_result.get('is_managed', False),
+                            }
+            except Exception as e:
+                print(f"[!] PE-sieve scan error: {e}")
 
         return sorted(process_list, key=lambda x: x['pid'])
 
