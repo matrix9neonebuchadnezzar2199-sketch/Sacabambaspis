@@ -153,6 +153,12 @@ class NetworkCollector:
                 'state': state,
             })
 
+        # パス1.5: バッチDNS逆引き + バッチ署名検証（高速化）
+        all_remote_ips = [cd['remote_ip'] for cd in conn_data if cd['remote_ip']]
+        self._batch_reverse_dns(all_remote_ips)
+        all_exe_paths = [cd['proc_path'] for cd in conn_data if cd['proc_path']]
+        self._batch_check_signatures(all_exe_paths)
+
         # パス2: 各接続を解析
         for cd in conn_data:
             analysis = self._deep_analyze(
@@ -621,19 +627,44 @@ class NetworkCollector:
         return False
 
     def _reverse_dns(self, ip):
-        """逆引きDNS（キャッシュ付き）"""
+        """逆引きDNS（キャッシュ付き・タイムアウト2秒）"""
         if ip in self._dns_cache:
             return self._dns_cache[ip]
         try:
-            hostname = socket.getfqdn(ip)
-            if hostname == ip:
-                result = ''
-            else:
-                result = hostname
+            old_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(2)
+            try:
+                host, _, _ = socket.gethostbyaddr(ip)
+                result = host if host != ip else ''
+            finally:
+                socket.setdefaulttimeout(old_timeout)
         except:
             result = ''
         self._dns_cache[ip] = result
         return result
+
+    def _batch_reverse_dns(self, ips):
+        """逆引きDNSをバッチ並列実行"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        unique_ips = set(ip for ip in ips if ip and not self._is_local_ip(ip) and ip not in self._dns_cache)
+        if not unique_ips:
+            return
+        def resolve(ip):
+            try:
+                old_timeout = socket.getdefaulttimeout()
+                socket.setdefaulttimeout(2)
+                try:
+                    host, _, _ = socket.gethostbyaddr(ip)
+                    return ip, (host if host != ip else '')
+                finally:
+                    socket.setdefaulttimeout(old_timeout)
+            except:
+                return ip, ''
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(resolve, ip): ip for ip in unique_ips}
+            for f in as_completed(futures):
+                ip, hostname = f.result()
+                self._dns_cache[ip] = hostname
 
     def _check_signature(self, exe_path):
         """デジタル署名の検証（キャッシュ付き）"""
@@ -669,3 +700,34 @@ class NetworkCollector:
 
         self._sig_cache[exe_path] = sig
         return sig
+
+    def _batch_check_signatures(self, exe_paths):
+        """デジタル署名をバッチ検証（PowerShell1回で全exe処理）"""
+        unchecked = [p for p in set(exe_paths) if p and p not in self._sig_cache and os.path.exists(p)]
+        if not unchecked:
+            return
+        ps_lines = []
+        for p in unchecked:
+            safe_path = p.replace("'", "''")
+            ps_lines.append(f"'{safe_path}|' + (Get-AuthenticodeSignature '{safe_path}').Status")
+        ps_script = '; '.join(ps_lines)
+        try:
+            result = subprocess.run(
+                ['powershell', '-NoProfile', '-Command', ps_script],
+                capture_output=True, text=True, timeout=max(10, len(unchecked) * 3),
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            status_map = {'Valid': '署名済み', 'NotSigned': '未署名',
+                          'HashMismatch': '改ざん疑い', 'UnknownError': '検証不能'}
+            for line in result.stdout.strip().splitlines():
+                if '|' in line:
+                    path_part, status_part = line.rsplit('|', 1)
+                    self._sig_cache[path_part] = status_map.get(status_part.strip(), status_part.strip() or '不明')
+        except subprocess.TimeoutExpired:
+            for p in unchecked:
+                self._sig_cache.setdefault(p, 'タイムアウト')
+        except Exception:
+            for p in unchecked:
+                self._sig_cache.setdefault(p, '不明')
+        for p in unchecked:
+            self._sig_cache.setdefault(p, '不明')

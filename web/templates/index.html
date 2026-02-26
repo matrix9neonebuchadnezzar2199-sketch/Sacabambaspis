@@ -5586,7 +5586,7 @@ function yaraLoadStatus() {
             mgmt.style.display = 'none';
         }
     }).catch(function() {
-        document.getElementById('yara-status-badge').innerHTML = '<span style="color:var(--accent-error);">通信エラー</span>';
+        // 通信エラー表示は不要（非表示）
     });
 }
 
