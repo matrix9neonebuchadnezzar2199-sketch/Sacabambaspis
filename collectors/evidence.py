@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # collectors/evidence.py - P36: 実行痕跡解析（5大アーティファクト対応）
 # UserAssist / Prefetch / ShimCache / Amcache / BAM
 import os
@@ -205,7 +205,7 @@ class EvidenceCollector:
                 sig_status, sig_org)
 
         # Rule 3: 偵察コマンド
-        for rc in self.recon_commands:
+        for rc in self.recon_tools:
             if rc == basename:
                 return ("INFO", f"偵察コマンド: {rc}",
                     build_tutor_desc(
