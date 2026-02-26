@@ -973,7 +973,9 @@
                             <th >安全</th>
                             <th >Source</th>
                             <th>Artifact</th>
+                            <th >Reason</th>
                             <th >Time</th>
+                            <th >判定</th>
                         </tr></thead>
                         <tbody id="list-evidence"></tbody>
                     </table>
@@ -2298,8 +2300,10 @@ function renderTables(keyword) {
             '<td>' + importantCheckbox('evidence', key, i) + '</td>' +
             '<td>' + safeButton('evidence', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
-            '<td>' + i.artifact + '</td>' +
-            '<td>' + i.timestamp + '</td>'
+            '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
+            '<td class="cell-reason">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
+            '<td>' + i.timestamp + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
     });
 
