@@ -362,9 +362,6 @@ class EventLogCollector:
                     status='DANGER',
                 ),
             },
-        }
-
-        # ERR-EVL-002: メッセージ内容から追加リスクを判定するキーワード
             4698: {
                 "base_status": "WARNING",
                 "label": "タスク作成",
@@ -431,6 +428,10 @@ class EventLogCollector:
                 "next_steps": "Defenderのアクション結果を確認し、検疫が成功したか、または失敗したか検証してください。",
                 "mitre": "evt_malware_detect"
             },
+
+        }
+
+        # ERR-EVL-002: メッセージ内容から追加リスクを判定するキーワード
 
         self.danger_keywords_in_message = [
             'mimikatz', 'invoke-expression', 'iex ', 'downloadstring',
