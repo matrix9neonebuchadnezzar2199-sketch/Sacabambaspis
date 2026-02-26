@@ -252,12 +252,11 @@ class EvidenceCollector:
                                     extra = f"実行回数: {run_count}回"
                                     if timestamp_str:
                                         extra += f"\n最終実行: {timestamp_str}"
-                                    result = self._analyze_exe_path(
+                                    result = self._analyze_exe_path(decoded, "UserAssist (レジストリ)", extra)
                                     if len(result) == 5:
                                         status, reason, desc, sig_st, sig_name = result
                                     else:
                                         status, reason, desc = result; sig_st = ""; sig_name = ""
-                                        decoded, "UserAssist (レジストリ)", extra)
                                     if status == "SAFE":
                                         continue
                                     results.append({
@@ -362,12 +361,11 @@ class EvidenceCollector:
                 if dt_str:
                     extra += f"\n最終更新: {dt_str}"
 
-                result = self._analyze_exe_path(
+                result = self._analyze_exe_path(exe_name, "Prefetch (実行キャッシュ)", extra)
                 if len(result) == 5:
                     status, reason, desc, sig_st, sig_name = result
                 else:
                     status, reason, desc = result; sig_st = ""; sig_name = ""
-                    exe_name, "Prefetch (実行キャッシュ)", extra)
                 if status == "SAFE":
                     continue
                 results.append({
@@ -415,12 +413,11 @@ class EvidenceCollector:
                         if timestamp:
                             extra += f"\n最終更新: {timestamp}"
 
-                        result = self._analyze_exe_path(
+                        result = self._analyze_exe_path(exe_path, "ShimCache (AppCompatCache)", extra)
                         if len(result) == 5:
                             status, reason, desc, sig_st, sig_name = result
                         else:
                             status, reason, desc = result; sig_st = ""; sig_name = ""
-                            exe_path, "ShimCache (AppCompatCache)", extra)
                         if status == "SAFE":
                             continue
                         results.append({
@@ -634,12 +631,11 @@ class EvidenceCollector:
                                     if link_date:
                                         extra += f"リンク日: {link_date}"
 
-                                    result = self._analyze_exe_path(
+                                    result = self._analyze_exe_path(lower_path, "Amcache (実行記録+ハッシュ)", extra)
                                     if len(result) == 5:
                                         status, reason, desc, sig_st, sig_name = result
                                     else:
                                         status, reason, desc = result; sig_st = ""; sig_name = ""
-                                        lower_path, "Amcache (実行記録+ハッシュ)", extra)
                                     if status == "SAFE":
                                         continue
                                     results.append({
@@ -689,12 +685,11 @@ class EvidenceCollector:
                                                     pass
                                                 if not fpath:
                                                     continue
-                                                result = self._analyze_exe_path(
+                                                result = self._analyze_exe_path(fpath, "Amcache (File)", "")
                                                 if len(result) == 5:
                                                     status, reason, desc, sig_st, sig_name = result
                                                 else:
                                                     status, reason, desc = result; sig_st = ""; sig_name = ""
-                                                    fpath, "Amcache (File)", "")
                                                 if status != "SAFE":
                                                     results.append({
                                                         "source": "Amcache",
@@ -765,12 +760,11 @@ class EvidenceCollector:
                         data = [data]
                     for path in data:
                         if path:
-                            result = self._analyze_exe_path(
+                            result = self._analyze_exe_path(str(path), "Amcache (Fallback)", "")
                             if len(result) == 5:
                                 status, reason, desc, sig_st, sig_name = result
                             else:
                                 status, reason, desc = result; sig_st = ""; sig_name = ""
-                                str(path), "Amcache (Fallback)", "")
                             if status != "SAFE":
                                 results.append({
                                     "source": "Amcache",
@@ -846,12 +840,11 @@ class EvidenceCollector:
                                         if timestamp:
                                             extra += f"\n最終実行: {timestamp}"
 
-                                        result = self._analyze_exe_path(
+                                        result = self._analyze_exe_path(exe_path, "BAM/DAM (実行記録)", extra)
                                         if len(result) == 5:
                                             status, reason, desc, sig_st, sig_name = result
                                         else:
                                             status, reason, desc = result; sig_st = ""; sig_name = ""
-                                            exe_path, "BAM/DAM (実行記録)", extra)
                                         if status == "SAFE":
                                             continue
                                         results.append({
