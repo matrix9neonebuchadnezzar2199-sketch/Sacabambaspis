@@ -11,6 +11,14 @@ except ImportError:
     from tutor_template import build_tutor_desc, MITRE_MAP
 
 
+try:
+    from collectors.sigma_engine import match_event_summary, build_sigma_tutor, SIGMA_AVAILABLE
+except ImportError:
+    try:
+        from sigma_engine import match_event_summary, build_sigma_tutor, SIGMA_AVAILABLE
+    except ImportError:
+        SIGMA_AVAILABLE = False
+
 class EventLogCollector:
     """P17: イベントログ解析 - 全イベントIDに3段構成Tutor解説を付与"""
 
@@ -560,6 +568,30 @@ class EventLogCollector:
 
                 mitre_key = self.EVT_MITRE_MAP.get(evt_id)
 
+                # P39: Sigma ルールマッチング
+                sigma_info = None
+                if SIGMA_AVAILABLE and status not in ("DANGER",):
+                    try:
+                        sigma_event = {
+                            "EventID": evt_id,
+                            "Message": raw_msg[:1000],
+                        }
+                        sigma_info = match_event_summary(sigma_event)
+                        if sigma_info:
+                            # Sigma の判定が現行より重い場合のみ昇格
+                            level_rank = {"DANGER": 0, "WARNING": 1, "INFO": 2, "SAFE": 3}
+                            current_rank = level_rank.get(status, 3)
+                            sigma_rank = level_rank.get(sigma_info["status"], 3)
+                            if sigma_rank < current_rank:
+                                status = sigma_info["status"]
+                                reason = sigma_info["reason"]
+                                sigma_tutor = build_sigma_tutor(sigma_info)
+                                if sigma_tutor:
+                                    tutor_text = tutor_text + "\n\n--- Sigma検知 ---\n" + sigma_tutor.get("beginner", "")
+                                mitre_key = mitre_key or "sigma_detection"
+                    except Exception:
+                        pass
+
                 results.append({
                     "id": evt_id,
                     "log": log_name.split('/')[-1],
@@ -569,6 +601,7 @@ class EventLogCollector:
                     "reason": reason,
                     "desc": tutor_text,
                     "mitre_key": mitre_key,
+                    "sigma": sigma_info,
                 })
         except Exception:
             return []

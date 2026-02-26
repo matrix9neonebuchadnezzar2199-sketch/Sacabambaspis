@@ -1,3 +1,6 @@
 flask
 psutil
 pyinstaller
+sigma-rule-matcher
+pySigma
+pyyaml
