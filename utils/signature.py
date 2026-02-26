@@ -46,7 +46,7 @@ def verify_signature(file_path):
             f'"'
         )
         r = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=5, shell=True
+            cmd, capture_output=True, text=True, timeout=5, shell=True, encoding='utf-8', errors='replace'
         )
         out = r.stdout.strip()
         if '|' in out:
