@@ -162,7 +162,7 @@ class NetworkCollector:
         # パス2: 各接続を解析
         for cd in conn_data:
             analysis = self._deep_analyze(
-                cd, proc_conn_count, remote_ip_count
+                cd, proc_conn_count, remote_ip_count, conn_data
             )
 
             rdns = ''
@@ -189,11 +189,12 @@ class NetworkCollector:
                 'status': analysis['status'],
                 'reason': analysis['reason'],
                 'desc': analysis['desc'],
+                'peer_details': analysis.get('peer_details', ''),
             })
 
         return connections
 
-    def _deep_analyze(self, cd, proc_conn_count, remote_ip_count):
+    def _deep_analyze(self, cd, proc_conn_count, remote_ip_count, conn_data=None):
         """接続の深層解析（複数ルール適用、最も危険度の高いものを返す）"""
         findings = []
         name_lower = cd['proc_name'].lower()
@@ -447,14 +448,28 @@ class NetworkCollector:
         # ルール6: 大量接続プロセス
         conn_count = proc_conn_count.get(pid, 0)
         if conn_count >= self.MASS_CONN_THRESHOLD:
+            # 同一PIDの接続先を集計
+            _peers = []
+            _peer_details = []
+            if conn_data:
+                for _c in conn_data:
+                    if _c['pid'] == pid and _c['remote_ip'] and not self._is_local_ip(_c['remote_ip']):
+                        _peer_details.append(f"{_c['raddr']} ({_c['state']})")
+                from collections import Counter as _C
+                _ip_counts = _C(_c['remote_ip'] for _c in conn_data if _c['pid'] == pid and _c['remote_ip'] and not self._is_local_ip(_c['remote_ip']))
+                _peers = [f"{ip}({cnt}件)" for ip, cnt in _ip_counts.most_common(3)]
+            _top = ", ".join(_peers) if _peers else "詳細不明"
+            _mass_reason = f'大量接続: {cd["proc_name"]} が{conn_count}件 | {(cd["proc_path"] or "パス不明")} | 主要接続先: {_top}'
             findings.append({
                 'status': 'WARNING',
-                'reason': f'大量接続: {cd["proc_name"]} が{conn_count}件 | {(cd["proc_path"] or "パス不明")}',
+                'reason': _mass_reason,
+                'peer_details': "\n".join(_peer_details[:20]) if _peer_details else '',
                 'desc': build_tutor_desc(
                     detection=(
                         f'プロセス「{cd["proc_name"]}」(PID:{pid})が'
                         f'{conn_count}件のネットワーク接続を保持しています。'
-                        f'閾値: {self.MASS_CONN_THRESHOLD}件'
+                        f'閾値: {self.MASS_CONN_THRESHOLD}件\n'
+                        f'主要接続先: {_top}'
                     ),
                     why_dangerous=(
                         '大量のネットワーク接続は、ポートスキャン（偵察活動）、'
