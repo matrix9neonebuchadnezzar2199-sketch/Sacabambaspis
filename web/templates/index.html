@@ -2915,6 +2915,7 @@ function formatShortDate(d) {
 function pad(n) { return n < 10 ? '0' + n : n; }
 function cls(s) { return s === 'DANGER' ? 'danger' : s === 'WARNING' ? 'warning' : 'safe'; }
 function statusJP(s) { return s === 'DANGER' ? '危険' : s === 'WARNING' ? '警告' : '正常'; }
+function reasonClass(s) { if (!s) return 'reason-safe'; switch(s.toUpperCase()) { case 'DANGER': return 'reason-danger'; case 'WARNING': return 'reason-warning'; case 'SAFE': return 'reason-safe'; default: return 'reason-info'; } }
 
 /* --- 詳細モーダル --- */
 function openDetailModal(tab, idxOrKey) {
@@ -2925,16 +2926,7 @@ function openDetailModal(tab, idxOrKey) {
         d = entry.data;
         actualTab = entry.tab;
     }
-    function reasonClass(status) {
-        if (!status) return 'reason-safe';
-        switch(status.toUpperCase()) {
-            case 'DANGER': return 'reason-danger';
-            case 'WARNING': return 'reason-warning';
-            case 'SAFE': return 'reason-safe';
-            default: return 'reason-info';
-        }
-    }
- else if (typeof idxOrKey === 'number' && tab && allData) {
+    } else if (typeof idxOrKey === 'number' && tab && allData) {
         var _tdm = {
             'logs': allData.eventlogs, 'proc': allData.processes,
             'memory': allData.memory, 'persist': allData.persistence,
