@@ -182,9 +182,15 @@ class BinaryRenameCollector:
             exp_orig_l = exp_original.lower() if exp_original else ''
 
             matched_pe = False
-            if exp_orig_l and exp_orig_l in orig_lower:
+            # 完全一致 or 拡張子除去後の完全一致（部分一致による誤検知防止）
+            orig_base = orig_lower.replace('.exe', '').replace('.dll', '')
+            internal_base = internal_lower.replace('.exe', '').replace('.dll', '')
+            exp_orig_base = exp_orig_l.replace('.exe', '').replace('.dll', '').replace('.c', '')
+            exp_int_base = exp_int_l.replace('.exe', '').replace('.dll', '')
+
+            if exp_orig_base and (exp_orig_base == orig_base or exp_orig_l == orig_lower):
                 matched_pe = True
-            elif exp_int_l and exp_int_l in internal_lower:
+            elif exp_int_base and (exp_int_base == internal_base or exp_int_l == internal_lower):
                 matched_pe = True
 
             if not matched_pe:
@@ -263,12 +269,12 @@ class BinaryRenameCollector:
             f'同時期のイベントログ (Event ID 4688) を確認',
         ]
 
+        normal_vs = f'正常: {normal_text} / 異常: {abnormal_text}'
         full_desc = build_tutor_desc(
-            detection_text=detection_text,
-            why_text=why_text,
+            detection=detection_text,
+            why_dangerous=why_text,
             mitre_key=mitre_key,
-            normal_text=normal_text,
-            abnormal_text=abnormal_text,
+            normal_vs_abnormal=normal_vs,
             next_steps=next_steps,
         )
 

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Sacabambaspis Tutor Template - P16: 解説構造統一テンプレート
 全コレクターの検知結果に統一的な解説構造を提供する。
@@ -25,6 +25,12 @@ MITRE_MAP = {
                            "https://attack.mitre.org/techniques/T1055/"),
     "mem_rwx_named":      ("T1055.001", "DLL Injection",
                            "https://attack.mitre.org/techniques/T1055/001/"),
+
+    # BinaryRename (P43)
+    "binrename_lolbin":   ("T1036.003", "Masquerading: Rename System Utilities",
+                           "https://attack.mitre.org/techniques/T1036/003/"),
+    "binrename_attack_tool": ("T1036.003", "Masquerading: Rename System Utilities",
+                           "https://attack.mitre.org/techniques/T1036/003/"),
 
     # Network
     "net_attack_tool":    ("T1219",     "Remote Access Software",
