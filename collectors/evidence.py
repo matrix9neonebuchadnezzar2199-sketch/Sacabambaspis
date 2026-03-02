@@ -239,10 +239,18 @@ class EvidenceCollector:
                 _skip_reason = _matched_known or '信頼パス'
                 item['sig_status'] = 'TrustedPath'
                 item['sig_signer'] = _skip_reason
+                if _is_unc:
+                    item['trust_detail'] = f'UNCネットワークパス | {art}'
+                elif _is_non_exe:
+                    item['trust_detail'] = f'非EXEファイル | {art}'
+                elif _matched_known:
+                    item['trust_detail'] = f'既知アプリ: {_matched_known} | {art}'
+                else:
+                    item['trust_detail'] = f'信頼ディレクトリ | {art}'
                 basename = os.path.basename(art_lower).replace('.exe', '')
                 if not is_hardcore_tool(basename) and item.get('status') in ('WARNING', 'INFO'):
                     item['status'] = 'SAFE'
-                    item['reason'] = f'信頼リスト除外: {_skip_reason}'
+                    item['reason'] = f'信頼リスト除外: {_skip_reason} | {art}'
                 continue
 
             # 不審パス → 署名検証結果を反映

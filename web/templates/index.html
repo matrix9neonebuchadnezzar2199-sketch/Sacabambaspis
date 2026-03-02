@@ -3039,6 +3039,7 @@ function getDetailFields(tab, d) {
             { label: '解説', value: d.desc || '-' },
             { label: '署名状態', value: d.sig_status || '未検証', type: d.sig_status === 'Valid' ? 'safe' : (d.sig_status ? 'danger' : '') },
             { label: '署名者', value: d.sig_signer || '-' },
+                    { label: '除外根拠', value: d.trust_detail || '-' },
             { label: '判定', value: statusText, type: statusType }
         ];
         case 'pca': return [
