@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Network Deep Analyzer - ネットワーク深層解析
 P11+P16: ビーコニング検知、署名検証、DNS逆引き、大量接続検知、非標準ポート検知、アカウント異常
@@ -524,7 +524,7 @@ class NetworkCollector:
                 and not self._is_local_ip(remote_ip)
                 and state == 'ESTABLISHED'):
             sig = self._check_signature(cd['proc_path'])
-            if sig == '未署名':
+            if sig == '未署名' and not self._is_trusted_path(cd['proc_path']):
                 findings.append({
                     'status': 'WARNING',
                     'reason': f'未署名プロセスの外部通信: {cd["proc_name"]}',
@@ -666,6 +666,18 @@ class NetworkCollector:
                 ip, hostname = f.result()
                 self._dns_cache[ip] = hostname
 
+
+    def _is_trusted_path(self, path):
+        """信頼パス判定（Program Files, System32等の正規ディレクトリ）"""
+        if not path:
+            return False
+        p = path.lower()
+        trusted_dirs = [
+            'c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
+            'c:\\program files\\', 'c:\\program files (x86)\\',
+            'c:\\windows\\microsoft.net\\', 'c:\\windows\\winsxs\\',
+        ]
+        return any(p.startswith(d) for d in trusted_dirs)
     def _check_signature(self, exe_path):
         """デジタル署名の検証（キャッシュ付き）"""
         if exe_path in self._sig_cache:
