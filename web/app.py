@@ -28,6 +28,7 @@ from collectors.cam import CAMCollector
 from collectors.srum import SRUMCollector
 from collectors.recall import RecallCollector
 from collectors.binary_rename import BinaryRenameCollector
+from collectors.lnk_forensics import LnkForensicsCollector
 
 
 # --- 設定 ---
@@ -866,6 +867,11 @@ def _run_scan():
         binrename_c = BinaryRenameCollector()
         binrename_results = binrename_c.scan()
 
+        # 14. LNK Forensics
+        update("LNKファイル解析中...", 96)
+        lnk_c = LnkForensicsCollector()
+        lnk_results = lnk_c.scan()
+
         # Self-marking
         update("自己除外処理中...", 96)
         self_pids = {self_pid, self_ppid}
@@ -892,6 +898,8 @@ def _run_scan():
             e['is_self'] = False
         for br in binrename_results:
             br['is_self'] = False
+        for lnk in lnk_results:
+            lnk['is_self'] = False
         for p in persistence:
             p['is_self'] = False
 
@@ -908,7 +916,8 @@ def _run_scan():
                 sum(1 for x in cam_results if x['status']=='DANGER') + \
                 sum(1 for x in srum_results if x['status']=='DANGER') + \
                 sum(1 for x in recall_results if x['status']=='DANGER') + \
-                sum(1 for x in binrename_results if x['status']=='DANGER')
+                sum(1 for x in binrename_results if x['status']=='DANGER') + \
+                sum(1 for x in lnk_results if x['status']=='DANGER')
 
         # UUID付与（証拠保全用一意識別子）
         assign_uids(procs)
@@ -924,6 +933,7 @@ def _run_scan():
         assign_uids(srum_results)
         assign_uids(recall_results)
         assign_uids(binrename_results)
+        assign_uids(lnk_results)
 
         scan_results = {
             "system": {
@@ -944,7 +954,8 @@ def _run_scan():
             "cam": cam_results,
             "srum": srum_results,
             "recall": recall_results,
-            "binrename": binrename_results
+            "binrename": binrename_results,
+            "lnk": lnk_results
         }
 
         threat_assessment = calculate_threat_score(scan_results)

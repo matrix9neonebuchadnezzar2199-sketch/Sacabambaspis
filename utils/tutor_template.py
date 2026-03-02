@@ -26,6 +26,12 @@ MITRE_MAP = {
     "mem_rwx_named":      ("T1055.001", "DLL Injection",
                            "https://attack.mitre.org/techniques/T1055/001/"),
 
+    # LNK Forensics (P44)
+    "lnk_startup":       ("T1547.001", "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder",
+                           "https://attack.mitre.org/techniques/T1547/001/"),
+    "lnk_suspicious":    ("T1204.002", "User Execution: Malicious File",
+                           "https://attack.mitre.org/techniques/T1204/002/"),
+
     # BinaryRename (P43)
     "binrename_lolbin":   ("T1036.003", "Masquerading: Rename System Utilities",
                            "https://attack.mitre.org/techniques/T1036/003/"),

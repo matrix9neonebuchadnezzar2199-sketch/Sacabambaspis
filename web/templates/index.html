@@ -682,6 +682,11 @@
                 <span class="sidebar-item-text">リネーム</span>
                 <span class="sidebar-item-badge" id="binrename-count" style="display:none;">0</span>
             </div>
+            <div class="sidebar-item" data-tab="lnk" onclick="switchTab('lnk', this)">
+                <span class="sidebar-item-icon">🔗</span>
+                <span class="sidebar-item-text">LNK解析</span>
+                <span class="sidebar-item-badge" id="lnk-count" style="display:none;">0</span>
+            </div>
             <div class="sidebar-item" data-tab="memdump" onclick="switchTab('memdump', this)">
                 <span class="sidebar-item-icon">🧠</span>
                 <span class="sidebar-item-text">メモリ抽出</span>
@@ -1211,6 +1216,12 @@
             <h2>🎭 バイナリリネーム検知</h2>
             <p class="tab-description">実行中プロセスのPEヘッダ情報（OriginalFilename / InternalName）とファイル名を比較し、リネームされた攻撃ツールやLOLBinを検出します。MITRE ATT&CK T1036.003</p>
             <div id="binrename-table" class="table-container"></div>
+        </div>
+
+        <div id="tab-lnk" aria-label="LNKファイル解析結果" class="card">
+            <h2>🔗 LNKファイル不審属性解析</h2>
+            <p class="tab-description">Recent/Startup/Desktop の LNK ショートカットファイルを解析し、隠しウィンドウ実行・不審引数・Base64エンコード等の攻撃属性を検出します。</p>
+            <div id="lnk-table" class="table-container"></div>
         </div>
 
             <div id="tab-memdump" aria-label="メモリ抽出・解析" class="card">
@@ -2442,6 +2453,25 @@ function renderTables(keyword) {
                 );
                 updateTabBadge('binrename', allData.binrename);
             }
+
+            // LNK Forensics
+            if (allData.lnk) {
+                renderTableGeneric('lnk', allData.lnk, document.getElementById('lnk-table'),
+                    ['status','lnk_name','suspicious_flags','target_path','creation_time'],
+                    ['判定','LNK名','不審属性','ターゲット','作成日時'],
+                    function(i, idx) {
+                        var rowClass = i.status === 'DANGER' ? 'danger' : (i.status === 'WARNING' ? 'warning' : 'safe');
+                        return '<tr class="' + rowClass + ' clickable-row" data-tab="lnk" data-idx="' + idx + '" data-uid="' + (i._uid||'') + '" style="cursor:pointer">' +
+                            '<td>' + statusBadge(i.status) + '</td>' +
+                            '<td>' + (i.lnk_name || '-') + '</td>' +
+                            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.suspicious_flags || '-') + '</td>' +
+                            '<td>' + (i.target_path || '-') + '</td>' +
+                            '<td>' + (i.creation_time || '-') + '</td>' +
+                            '</tr>';
+                    }
+                );
+                updateTabBadge('lnk', allData.lnk);
+            }
         const key = getItemKey('recall', i);
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
@@ -3072,6 +3102,24 @@ function getDetailFields(tab, d) {
                     { label: '除外根拠', value: d.trust_detail || '-' },
             { label: '判定', value: statusText, type: statusType }
         ];
+                case 'lnk': return [
+                    { label: 'LNK名', value: d.lnk_name || '-' },
+                    { label: 'LNKパス', value: d.lnk_path || '-' },
+                    { label: 'ターゲット', value: d.target_path || '-' },
+                    { label: '引数', value: d.arguments || '-' },
+                    { label: '作業ディレクトリ', value: d.working_dir || '-' },
+                    { label: 'ShowCommand', value: d.show_command || '-' },
+                    { label: '作成日時', value: d.creation_time || '-' },
+                    { label: 'アクセス日時', value: d.access_time || '-' },
+                    { label: '更新日時', value: d.write_time || '-' },
+                    { label: 'TrackerホストName', value: d.tracker_hostname || '-' },
+                    { label: 'Tracker MAC', value: d.tracker_mac || '-' },
+                    { label: '不審属性', value: d.suspicious_flags || '-', type: d.status === 'DANGER' ? 'danger' : (d.status === 'WARNING' ? 'warning' : '') },
+                    { label: 'MITRE', value: d.mitre || '-' },
+                    { label: '解説', value: d.desc || '-' },
+                    { label: '判定', value: statusText, type: statusType }
+                ];
+                
         case 'binrename': return [
                     { label: 'ファイル名', value: d.exe_name || '-' },
                     { label: 'パス', value: d.exe_path || '-' },
@@ -3257,6 +3305,9 @@ function bulkRegisterImportant() {
     });
 
     /* 痕跡 */
+            if (allData.lnk) allData.lnk.forEach(function(i,idx){
+                items.push({ time: i.creation_time||'-', source: 'LNK', name: i.lnk_name, detail: i.suspicious_flags, status: i.status, _src: i, _tab: 'lnk', _idx: idx });
+            });
     if (allData.binrename) allData.binrename.forEach(function(i,idx){
                 items.push({ time: '-', source: 'BinaryRename', name: i.exe_name, detail: i.reason, status: i.status, _src: i, _tab: 'binrename', _idx: idx });
             });
