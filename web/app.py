@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 import sys
 import os
 import socket
@@ -27,6 +27,7 @@ from collectors.wsl import WSLCollector
 from collectors.cam import CAMCollector
 from collectors.srum import SRUMCollector
 from collectors.recall import RecallCollector
+from collectors.binary_rename import BinaryRenameCollector
 
 
 # --- 設定 ---
@@ -860,6 +861,11 @@ def _run_scan():
         recall_c = RecallCollector()
         recall_results = recall_c.scan()
 
+        # 13. BinaryRename
+        update("バイナリリネーム検知中...", 95)
+        binrename_c = BinaryRenameCollector()
+        binrename_results = binrename_c.scan()
+
         # Self-marking
         update("自己除外処理中...", 96)
         self_pids = {self_pid, self_ppid}
@@ -884,6 +890,8 @@ def _run_scan():
                     pass
         for e in evidence:
             e['is_self'] = False
+        for br in binrename_results:
+            br['is_self'] = False
         for p in persistence:
             p['is_self'] = False
 
@@ -899,7 +907,8 @@ def _run_scan():
                 sum(1 for x in wsl_results if x['status']=='DANGER') + \
                 sum(1 for x in cam_results if x['status']=='DANGER') + \
                 sum(1 for x in srum_results if x['status']=='DANGER') + \
-                sum(1 for x in recall_results if x['status']=='DANGER')
+                sum(1 for x in recall_results if x['status']=='DANGER') + \
+                sum(1 for x in binrename_results if x['status']=='DANGER')
 
         # UUID付与（証拠保全用一意識別子）
         assign_uids(procs)
@@ -914,6 +923,7 @@ def _run_scan():
         assign_uids(cam_results)
         assign_uids(srum_results)
         assign_uids(recall_results)
+        assign_uids(binrename_results)
 
         scan_results = {
             "system": {
@@ -933,7 +943,8 @@ def _run_scan():
             "wsl": wsl_results,
             "cam": cam_results,
             "srum": srum_results,
-            "recall": recall_results
+            "recall": recall_results,
+            "binrename": binrename_results
         }
 
         threat_assessment = calculate_threat_score(scan_results)

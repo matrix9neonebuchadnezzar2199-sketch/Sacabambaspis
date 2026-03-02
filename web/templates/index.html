@@ -677,6 +677,11 @@
 
             <div class="sidebar-divider"></div>
             <div class="sidebar-section-label">ツール</div>
+            <div class="sidebar-item" data-tab="binrename" onclick="switchTab('binrename', this)">
+                <span class="sidebar-item-icon">🎭</span>
+                <span class="sidebar-item-text">リネーム</span>
+                <span class="sidebar-item-badge" id="binrename-count" style="display:none;">0</span>
+            </div>
             <div class="sidebar-item" data-tab="memdump" onclick="switchTab('memdump', this)">
                 <span class="sidebar-item-icon">🧠</span>
                 <span class="sidebar-item-text">メモリ抽出</span>
@@ -1202,6 +1207,12 @@
             </div>
 
             <!-- P26: メモリ抽出タブ -->
+        <div id="tab-binrename" aria-label="バイナリリネーム検知結果" class="card">
+            <h2>🎭 バイナリリネーム検知</h2>
+            <p class="tab-description">実行中プロセスのPEヘッダ情報（OriginalFilename / InternalName）とファイル名を比較し、リネームされた攻撃ツールやLOLBinを検出します。MITRE ATT&CK T1036.003</p>
+            <div id="binrename-table" class="table-container"></div>
+        </div>
+
             <div id="tab-memdump" aria-label="メモリ抽出・解析" class="card">
                 <div class="guide-box">
                     <span class="guide-title">🧠 メモリ抽出・解析</span>
@@ -2412,6 +2423,25 @@ function renderTables(keyword) {
 
     /* Recall */
     if (allData.recall) renderTableGeneric('list-recall', allData.recall, ['artifact', 'detail'], keyword, 'recall', i => {
+
+            // BinaryRename
+            if (allData.binrename) {
+                renderTableGeneric('binrename', allData.binrename, document.getElementById('binrename-table'),
+                    ['status','exe_name','rename_type','reason','exe_path'],
+                    ['判定','ファイル名','種別','検知理由','パス'],
+                    function(i, idx) {
+                        var rowClass = i.status === 'DANGER' ? 'danger' : (i.status === 'WARNING' ? 'warning' : 'safe');
+                        return '<tr class="' + rowClass + ' clickable-row" data-tab="binrename" data-idx="' + idx + '" data-uid="' + (i._uid||'') + '" style="cursor:pointer">' +
+                            '<td>' + statusBadge(i.status) + '</td>' +
+                            '<td>' + (i.exe_name || '-') + '</td>' +
+                            '<td>' + (i.rename_type || '-') + '</td>' +
+                            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
+                            '<td>' + (i.exe_path || '-') + '</td>' +
+                            '</tr>';
+                    }
+                );
+                updateTabBadge('binrename', allData.binrename);
+            }
         const key = getItemKey('recall', i);
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
@@ -3042,7 +3072,20 @@ function getDetailFields(tab, d) {
                     { label: '除外根拠', value: d.trust_detail || '-' },
             { label: '判定', value: statusText, type: statusType }
         ];
-        case 'pca': return [
+        case 'binrename': return [
+                    { label: 'ファイル名', value: d.exe_name || '-' },
+                    { label: 'パス', value: d.exe_path || '-' },
+                    { label: 'OriginalFilename', value: d.original_name || '-' },
+                    { label: 'InternalName', value: d.internal_name || '-' },
+                    { label: '種別', value: d.rename_type || '-' },
+                    { label: '説明', value: d.description || '-' },
+                    { label: '発行元', value: d.company || '-' },
+                    { label: 'MITRE', value: d.mitre || '-' },
+                    { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
+                    { label: '解説', value: d.desc || '-' },
+                    { label: '判定', value: statusText, type: statusType }
+                ];
+                            case 'pca': return [
             { label: 'ソース', value: d.source },
             { label: 'ファイル名', value: d.exe_name || '-' },
             { label: 'パス', value: d.artifact },
@@ -3214,7 +3257,10 @@ function bulkRegisterImportant() {
     });
 
     /* 痕跡 */
-    if (allData.evidence) allData.evidence.forEach(i => {
+    if (allData.binrename) allData.binrename.forEach(function(i,idx){
+                items.push({ time: '-', source: 'BinaryRename', name: i.exe_name, detail: i.reason, status: i.status, _src: i, _tab: 'binrename', _idx: idx });
+            });
+                        if (allData.evidence) allData.evidence.forEach(i => {
         if (i.status === 'DANGER' || i.status === 'WARNING') {
             const key = getItemKey('evidence', i);
             if (!importantItems.has(key)) { importantItems.set(key, { tab: 'evidence', key: key, data: i }); count++; }
