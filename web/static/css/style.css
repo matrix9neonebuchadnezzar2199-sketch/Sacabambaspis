@@ -493,10 +493,12 @@ td.cell-sub {
 td.cell-reason {
     white-space: normal;
     word-break: break-all;
-    color: var(--accent-error);
     font-weight: bold;
     font-size: var(--font-size-sm);
 }
+td.cell-reason.reason-danger { color: var(--accent-error); }
+td.cell-reason.reason-warning { color: var(--accent-warning); }
+td.cell-reason.reason-safe, td.cell-reason.reason-info { color: var(--text-secondary); }
 
 td.cell-desc {
     white-space: normal;

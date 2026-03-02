@@ -2011,7 +2011,7 @@ function renderImportantTab() {
         html += '<td><button class="safe-toggle-btn ' + safeClass + '" onclick="toggleSafeByKey(\'' + escapedKey + '\')">' + safeLabel + '</button></td>';
         html += '<td><span class="tag tag-evid">' + tabLabel + '</span></td>';
         html += '<td>' + name + '</td>';
-        html += '<td class="cell-reason">' + (reason ? '⚠️ ' + highlightPaths(reason) : '') + '</td>';
+        html += '<td class="cell-reason ' + reasonClass(i.status) + '">' + (reason ? '⚠️ ' + highlightPaths(reason) : '') + '</td>';
         html += '<td>' + time + '</td>';
         html += '<td class="' + cls(status) + '">' + statusJP(status) + '</td>';
         html += '</tr>';
@@ -2187,7 +2187,7 @@ function renderTimeline(items) {
             '<td><span class="tag ' + conf.class + '">' + conf.label + '</span></td>' +
             '<td>' + i.id + '</td>' +
             '<td>' + (i.target || '') + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + (i.status === 'DANGER' && !i.is_self ? ' <span style="color:var(--accent-error);font-weight:bold;">[THREAT]</span>' : '') + '</td>' +
             '</tr>';
     }).join('');
@@ -2233,7 +2233,7 @@ function renderTables(keyword) {
             '<td class="' + cls(i.status) + '">' + i.name + (i.is_self ? ' <span class="tag-self">自己</span>' : '') + '</td>' +
             '<td class="cell-sub">' + (i.parent || '-') + '</td>' +
             '<td class="cell-sub">' + i.path + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td class="cell-sub">' + dnaText + '</td>' +
             '<td>' + i.time + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
@@ -2271,7 +2271,7 @@ function renderTables(keyword) {
             '<td>' + i.type + '</td>' +
             '<td>' + (i.name || i.entry) + '</td>' +
             '<td class="cell-sub" style="word-break:break-all;">' + (i.command || i.value) + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
     });
@@ -2296,7 +2296,7 @@ function renderTables(keyword) {
             '<td class="cell-sub">' + (i.user || '') + '</td>' +
             '<td style="' + sigStyle + '">' + (i.signature || '') + '</td>' +
             '<td>' + (i.conn_count || '') + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
     });
@@ -2311,7 +2311,7 @@ function renderTables(keyword) {
             '<td>' + safeButton('evidence', key, i) + '</td>' +
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
             '<td>' + i.timestamp + '</td>' +
             '<td>' + (i.sig_signer ? '\u2705 ' + i.sig_signer : (i.sig_status === 'NotFound' ? '\u2753 \u30d5\u30a1\u30a4\u30eb\u524a\u9664\u6e08\u307f' : (i.sig_status ? '\u274c ' + i.sig_status : '-'))) + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
@@ -2329,7 +2329,7 @@ function renderTables(keyword) {
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + (i.exe_name || '') + '</td>' +
             '<td class="cell-sub">' + i.artifact + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td>' + fileStatus + '</td>' +
             '<td>' + i.timestamp + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
@@ -2347,7 +2347,7 @@ function renderTables(keyword) {
             '<td>' + (i.zone_name || '') + '</td>' +
             '<td class="cell-sub">' + i.host_url + '</td>' +
             '<td class="cell-sub">' + i.referrer_url + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td>' + (i.file_size || '') + '</td>' +
             '<td>' + i.timestamp + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
@@ -2364,7 +2364,7 @@ function renderTables(keyword) {
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + i.artifact + '</td>' +
             '<td class="cell-sub">' + (i.detail ? filterDescByLevel(i.detail).replace(/\\n/g, '<br>') : '') + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td>' + i.timestamp + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
@@ -2385,7 +2385,7 @@ function renderTables(keyword) {
             '<td>' + (i.run_count || 0) + '</td>' +
             '<td>' + (i.exit_code || '') + '</td>' +
             '<td>' + fileStatus + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
     });
@@ -2404,7 +2404,7 @@ function renderTables(keyword) {
             '<td>' + (i.network_recv || '') + '</td>' +
             '<td>' + (i.cpu_time || '') + '</td>' +
             '<td class="cell-sub">' + (i.user_sid || '') + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td>' + (i.timestamp || '') + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
@@ -2420,7 +2420,7 @@ function renderTables(keyword) {
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + (i.artifact || '') + '</td>' +
             '<td class="cell-sub">' + (i.detail || '') + '</td>' +
-            '<td class="cell-reason">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
             '<td>' + (i.timestamp || '') + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
@@ -2924,7 +2924,17 @@ function openDetailModal(tab, idxOrKey) {
         if (!entry) return;
         d = entry.data;
         actualTab = entry.tab;
-    } else if (typeof idxOrKey === 'number' && tab && allData) {
+    }
+    function reasonClass(status) {
+        if (!status) return 'reason-safe';
+        switch(status.toUpperCase()) {
+            case 'DANGER': return 'reason-danger';
+            case 'WARNING': return 'reason-warning';
+            case 'SAFE': return 'reason-safe';
+            default: return 'reason-info';
+        }
+    }
+ else if (typeof idxOrKey === 'number' && tab && allData) {
         var _tdm = {
             'logs': allData.eventlogs, 'proc': allData.processes,
             'memory': allData.memory, 'persist': allData.persistence,
