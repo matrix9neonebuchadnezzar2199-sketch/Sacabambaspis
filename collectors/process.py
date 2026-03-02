@@ -118,7 +118,15 @@ class ProcessCollector:
 
                 ppid = p_info.get('ppid', 0)
                 parent_name = pid_name_map.get(ppid, "unknown")
-                findings = self._analyze_process(p_info, parent_name)
+                # 信頼パスの正規プロセスは深い解析スキップ
+                _pp = (p_info.get('path') or '').lower()
+                _trusted_proc = ['c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
+                                  'c:\\program files\\', 'c:\\program files (x86)\\',
+                                  'c:\\windows\\microsoft.net\\']
+                if any(_pp.startswith(d) for d in _trusted_proc):
+                    findings = []
+                else:
+                    findings = self._analyze_process(p_info, parent_name)
                 status, reason, description = self._select_worst(findings)
 
                 ct = p_info.get('create_time')

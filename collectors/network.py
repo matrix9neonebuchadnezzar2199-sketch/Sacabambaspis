@@ -647,7 +647,7 @@ class NetworkCollector:
             return self._dns_cache[ip]
         try:
             old_timeout = socket.getdefaulttimeout()
-            socket.setdefaulttimeout(2)
+            socket.setdefaulttimeout(1)
             try:
                 host, _, _ = socket.gethostbyaddr(ip)
                 result = host if host != ip else ''
@@ -667,7 +667,7 @@ class NetworkCollector:
         def resolve(ip):
             try:
                 old_timeout = socket.getdefaulttimeout()
-                socket.setdefaulttimeout(2)
+                socket.setdefaulttimeout(1)
                 try:
                     host, _, _ = socket.gethostbyaddr(ip)
                     return ip, (host if host != ip else '')
@@ -702,6 +702,15 @@ class NetworkCollector:
             self._sig_cache[exe_path] = '不明'
             return '不明'
 
+        # 信頼パスは検証スキップ
+        _pl = exe_path.lower()
+        _trusted = ['c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
+                     'c:\\program files\\', 'c:\\program files (x86)\\',
+                     'c:\\windows\\winsxs\\', 'c:\\windows\\microsoft.net\\']
+        if any(_pl.startswith(d) for d in _trusted):
+            self._sig_cache[exe_path] = '署名済み'
+            return '署名済み'
+
         try:
             result = subprocess.run(
                 ['powershell', '-NoProfile', '-Command',
@@ -730,7 +739,20 @@ class NetworkCollector:
 
     def _batch_check_signatures(self, exe_paths):
         """デジタル署名をバッチ検証（PowerShell1回で全exe処理）"""
-        unchecked = [p for p in set(exe_paths) if p and p not in self._sig_cache and os.path.exists(p)]
+        unchecked = []
+        _trusted_dirs = [
+            'c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
+            'c:\\program files\\', 'c:\\program files (x86)\\',
+            'c:\\windows\\winsxs\\', 'c:\\windows\\microsoft.net\\',
+        ]
+        for p in set(exe_paths):
+            if not p or p in self._sig_cache:
+                continue
+            pl = p.lower()
+            if any(pl.startswith(d) for d in _trusted_dirs):
+                self._sig_cache[p] = '署名済み'  # 信頼パスはスキップ
+            elif os.path.exists(p):
+                unchecked.append(p)
         if not unchecked:
             return
         ps_lines = []

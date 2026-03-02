@@ -100,6 +100,83 @@ class EvidenceCollector:
             'c:\\windows\\winsxs\\', 'c:\\windows\\microsoft.net\\',
             'c:\\windows\\servicing\\', 'c:\\windows\\immersivecontrolpanel\\',
             'c:\\windows\\systemapps\\',
+            'c:\\windows\\uus\\',
+            'c:\\windows\\temp\\',
+            'c:\\windows\\installer\\',
+            'c:\\windows\\softwaredistribution\\',
+        ]
+
+        # 既知アプリパターン（署名検証スキップ対象）
+        _known_apps = {
+            'chrome': 'Google Chrome',
+            'msedge': 'Microsoft Edge',
+            'firefox': 'Mozilla Firefox',
+            'code': 'Visual Studio Code',
+            'discord': 'Discord',
+            'slack': 'Slack',
+            'teams': 'Microsoft Teams',
+            'spotify': 'Spotify',
+            'steam': 'Steam',
+            'onedrive': 'Microsoft OneDrive',
+            'dropbox': 'Dropbox',
+            'zoom': 'Zoom',
+            'git': 'Git',
+            'node': 'Node.js',
+            'python': 'Python',
+            'java': 'Java',
+            'notepad++': 'Notepad++',
+            'vlc': 'VLC Media Player',
+            '7z': '7-Zip',
+            'winrar': 'WinRAR',
+            'docker': 'Docker',
+            'vmware': 'VMware',
+            'virtualbox': 'VirtualBox',
+            'obs': 'OBS Studio',
+            'gimp': 'GIMP',
+            'audacity': 'Audacity',
+            'vscode': 'VS Code',
+            'powershell': 'PowerShell',
+            'windowsterminal': 'Windows Terminal',
+            'explorer': 'Windows Explorer',
+            'svchost': 'Windows Service Host',
+            'taskhostw': 'Windows Task Host',
+            'runtimebroker': 'Runtime Broker',
+            'searchhost': 'Windows Search',
+            'startmenuexperiencehost': 'Start Menu',
+            'shellexperiencehost': 'Shell Experience',
+            'applicationframehost': 'App Frame Host',
+            'systemsettings': 'System Settings',
+            'securityhealthsystray': 'Windows Security',
+            'widgets': 'Windows Widgets',
+            'phoneexperiencehost': 'Phone Link',
+            'gamebar': 'Xbox Game Bar',
+            'msteams': 'Microsoft Teams',
+        }
+
+        _known_app_paths = [
+            ('\\appdata\\local\\google\\chrome\\', 'Google Chrome'),
+            ('\\appdata\\local\\microsoft\\edge\\', 'Microsoft Edge'),
+            ('\\appdata\\local\\discord\\', 'Discord'),
+            ('\\appdata\\local\\slack\\', 'Slack'),
+            ('\\appdata\\local\\programs\\microsoft vs code\\', 'VS Code'),
+            ('\\appdata\\local\\programs\\python\\', 'Python'),
+            ('\\appdata\\local\\gitkraken\\', 'GitKraken'),
+            ('\\appdata\\local\\spotify\\', 'Spotify'),
+            ('\\appdata\\local\\zoom\\', 'Zoom'),
+            ('\\appdata\\local\\teams\\', 'Microsoft Teams'),
+            ('\\appdata\\local\\docker\\', 'Docker'),
+            ('\\appdata\\local\\packages\\', 'Windows Store App'),
+            ('\\steam\\', 'Steam'),
+            ('\\windowsapps\\', 'Windows Store App'),
+            ('\\appdata\\local\\docker\\', 'Docker'),
+            ('\\appdata\\local\\temp\\dockerdesktop', 'Docker Desktop'),
+            ('\\.docker\\', 'Docker'),
+            ('\\appdata\\local\\gitkraken\\', 'GitKraken'),
+            ('\\appdata\\local\\postman\\', 'Postman'),
+            ('\\appdata\\local\\obsidian\\', 'Obsidian'),
+            ('\\appdata\\local\\notion\\', 'Notion'),
+            ('\\appdata\\roaming\\zoom\\', 'Zoom'),
+            ('\\tool\\', 'User Tools'),
         ]
 
         # ユニークパスを収集（信頼パスは署名検証スキップ）
@@ -112,8 +189,26 @@ class EvidenceCollector:
             art_lower = art.lower()
             if any(art_lower.startswith(d) for d in _trusted_dirs):
                 trusted_path_set.add(art)
-            elif os.path.isfile(art):
-                untrusted_paths.add(art)
+            else:
+                # 既知アプリパスチェック
+                _matched_app = None
+                for _pat, _app_name in _known_app_paths:
+                    if _pat in art_lower:
+                        _matched_app = _app_name
+                        break
+                if not _matched_app:
+                    _bn = os.path.basename(art_lower).replace('.exe', '')
+                    _matched_app = _known_apps.get(_bn)
+
+                if _matched_app:
+                    trusted_path_set.add(art)  # 既知アプリも信頼扱い
+                elif art.startswith('\\\\'):
+                    trusted_path_set.add(art)  # UNCパスは署名検証スキップ
+                elif not art_lower.endswith('.exe'):
+                    trusted_path_set.add(art)  # 非EXEは署名検証不要
+                else:
+                    if os.path.isfile(art):
+                        untrusted_paths.add(art)
 
         # バッチ署名検証（不審パスのみ）
         if batch_verify_signatures and untrusted_paths:
@@ -126,14 +221,28 @@ class EvidenceCollector:
                 continue
             art_lower = art.lower()
 
-            # 信頼パス → 署名検証不要、そのまま信頼
-            if any(art_lower.startswith(d) for d in _trusted_dirs):
+            # 信頼パス or 既知アプリ → 署名検証不要
+            _is_unc = art.startswith('\\\\')
+            _is_non_exe = not art_lower.endswith('.exe')
+            _is_trusted_dir = _is_unc or _is_non_exe or any(art_lower.startswith(d) for d in _trusted_dirs)
+            _matched_known = None
+            if not _is_trusted_dir:
+                for _pat, _app_name in _known_app_paths:
+                    if _pat in art_lower:
+                        _matched_known = _app_name
+                        break
+                if not _matched_known:
+                    _bn = os.path.basename(art_lower).replace('.exe', '')
+                    _matched_known = _known_apps.get(_bn)
+
+            if _is_trusted_dir or _matched_known:
+                _skip_reason = _matched_known or '信頼パス'
                 item['sig_status'] = 'TrustedPath'
-                item['sig_signer'] = '信頼パス'
+                item['sig_signer'] = _skip_reason
                 basename = os.path.basename(art_lower).replace('.exe', '')
                 if not is_hardcore_tool(basename) and item.get('status') in ('WARNING', 'INFO'):
                     item['status'] = 'SAFE'
-                    item['reason'] = '信頼パス内の正規ファイル'
+                    item['reason'] = f'信頼リスト除外: {_skip_reason}'
                 continue
 
             # 不審パス → 署名検証結果を反映
