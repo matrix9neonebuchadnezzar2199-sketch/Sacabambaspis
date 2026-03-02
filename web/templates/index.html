@@ -2011,7 +2011,7 @@ function renderImportantTab() {
         html += '<td><button class="safe-toggle-btn ' + safeClass + '" onclick="toggleSafeByKey(\'' + escapedKey + '\')">' + safeLabel + '</button></td>';
         html += '<td><span class="tag tag-evid">' + tabLabel + '</span></td>';
         html += '<td>' + name + '</td>';
-        html += '<td class="cell-reason ' + reasonClass(i.status) + '">' + (reason ? '⚠️ ' + highlightPaths(reason) : '') + '</td>';
+        html += '<td class="cell-reason ' + reasonClass(status) + '">' + (reason ? '⚠️ ' + highlightPaths(reason) : '') + '</td>';
         html += '<td>' + time + '</td>';
         html += '<td class="' + cls(status) + '">' + statusJP(status) + '</td>';
         html += '</tr>';
