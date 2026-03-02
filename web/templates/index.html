@@ -2174,13 +2174,13 @@ function renderTimeline(items) {
         return;
     }
     const display = items.slice(0, 1000);
-    el.innerHTML = display.map(i => {
+    el.innerHTML = display.map((i, idx) => {
         const conf = CAT_CONFIG[i.cat] || { label: 'Other', class: 'tag-sys' };
         const key = getItemKey('timeline', i);
         const impClass = isImportant(key) ? ' row-important' : '';
         let rowClass = i.is_self ? 'row-self' : (i.status === 'DANGER' ? 'row-danger' : (i.status === 'WARNING' ? 'row-warning' : ''));
         if (impClass) rowClass = 'row-important';
-        return '<tr class="' + rowClass + '">' +
+        return '<tr class="' + rowClass + ' clickable-row" data-tab="timeline" data-idx="' + idx + '" data-uid="' + ((i._src && i._src._uid) || key) + '" style="cursor:pointer;">' +
             '<td>' + importantCheckbox('timeline', key, i._src || i) + '</td>' +
             '<td>' + safeButton('timeline', (i._src && i._src._uid) ? i._src._uid : key, i._src || i) + '</td>' +
             '<td>' + formatDate(i.ts) + '</td>' +
@@ -2191,6 +2191,16 @@ function renderTimeline(items) {
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + (i.status === 'DANGER' && !i.is_self ? ' <span style="color:var(--accent-error);font-weight:bold;">[THREAT]</span>' : '') + '</td>' +
             '</tr>';
     }).join('');
+    el.querySelectorAll('tr.clickable-row').forEach(function(tr) {
+        tr.addEventListener('click', function(e) {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+            var t = tr.getAttribute('data-tab');
+            var uid2 = tr.getAttribute('data-uid');
+            if (uid2 && typeof openDetailModal === 'function') {
+                openDetailModal(t, uid2);
+            }
+        });
+    });
 }
 
 function renderTables(keyword) {
