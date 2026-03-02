@@ -207,7 +207,7 @@ class NetworkCollector:
             if tool in name_lower:
                 findings.append({
                     'status': 'DANGER',
-                    'reason': f'攻撃ツールの通信検知: {cd["proc_name"]}',
+                    'reason': f'攻撃ツールの通信検知: {cd["proc_name"]} | {cd["proc_path"]}',
                     'desc': build_tutor_desc(
                         detection=(
                             f'既知の攻撃ツール「{cd["proc_name"]}」(PID:{pid})が'
@@ -244,7 +244,7 @@ class NetworkCollector:
         if name_lower in self.LOLBINS and remote_ip and not self._is_local_ip(remote_ip):
             findings.append({
                 'status': 'DANGER',
-                'reason': f'LOLBinの外部通信: {cd["proc_name"]}',
+                'reason': f'LOLBinの外部通信: {cd["proc_name"]} | {cd["proc_path"]}',
                 'desc': build_tutor_desc(
                     detection=(
                         f'Windows標準管理ツール「{cd["proc_name"]}」(PID:{pid})が'
@@ -283,7 +283,7 @@ class NetworkCollector:
                 if name_lower in self.LOLBINS:
                     findings.append({
                         'status': 'WARNING',
-                        'reason': f'LOLBinのHTTPS通信 (port {remote_port})',
+                        'reason': f'LOLBinのHTTPS通信 (port {remote_port}) | {cd["proc_name"]} | {cd["proc_path"]}',
                         'desc': build_tutor_desc(
                             detection=(
                                 f'管理ツール「{cd["proc_name"]}」(PID:{pid})が'
@@ -312,7 +312,7 @@ class NetworkCollector:
             elif remote_port in (8080, 8443, 9090):
                 findings.append({
                     'status': 'WARNING',
-                    'reason': f'代替HTTPポート: {remote_port} ({port_info})',
+                    'reason': f'代替HTTPポート: {remote_port} ({port_info}) | {cd["proc_name"]} | {cd["proc_path"]}',
                     'desc': build_tutor_desc(
                         detection=(
                             f'プロセス「{cd["proc_name"]}」(PID:{pid})が'
@@ -341,7 +341,7 @@ class NetworkCollector:
             else:
                 findings.append({
                     'status': 'DANGER',
-                    'reason': f'危険ポート: {remote_port} ({port_info})',
+                    'reason': f'危険ポート: {remote_port} ({port_info}) | {cd["proc_name"]} | {cd["proc_path"]}',
                     'desc': build_tutor_desc(
                         detection=(
                             f'プロセス「{cd["proc_name"]}」(PID:{pid})が'
@@ -378,7 +378,7 @@ class NetworkCollector:
                 and remote_ip and not self._is_local_ip(remote_ip)):
             findings.append({
                 'status': 'WARNING',
-                'reason': f'非標準ポート通信: {remote_port}',
+                'reason': f'非標準ポート通信: {remote_port} | {cd["proc_name"]} | {cd["proc_path"]}',
                 'desc': build_tutor_desc(
                     detection=(
                         f'プロセス「{cd["proc_name"]}」(PID:{pid})が'
@@ -413,7 +413,7 @@ class NetworkCollector:
             if ip_conn_count >= self.BEACON_THRESHOLD:
                 findings.append({
                     'status': 'WARNING',
-                    'reason': f'ビーコニング疑い: {remote_ip} へ{ip_conn_count}件の接続',
+                    'reason': f'ビーコニング疑い: {remote_ip} へ{ip_conn_count}件 | {cd["proc_name"]} | {cd["proc_path"]}',
                     'desc': build_tutor_desc(
                         detection=(
                             f'同一リモートIP({remote_ip})への接続が{ip_conn_count}件検出されました。'
@@ -449,7 +449,7 @@ class NetworkCollector:
         if conn_count >= self.MASS_CONN_THRESHOLD:
             findings.append({
                 'status': 'WARNING',
-                'reason': f'大量接続: {cd["proc_name"]} が{conn_count}件の接続',
+                'reason': f'大量接続: {cd["proc_name"]} が{conn_count}件 | {cd["proc_path"]}',
                 'desc': build_tutor_desc(
                     detection=(
                         f'プロセス「{cd["proc_name"]}」(PID:{pid})が'
@@ -488,7 +488,7 @@ class NetworkCollector:
                 and 'network service' not in user_lower):
             findings.append({
                 'status': 'DANGER',
-                'reason': f'アカウント異常: {cd["proc_name"]} が {cd["proc_user"]} で実行',
+                'reason': f'アカウント異常: {cd["proc_name"]} が {cd["proc_user"]} で実行 | {cd["proc_path"]}',
                 'desc': build_tutor_desc(
                     detection=(
                         f'システムプロセス「{cd["proc_name"]}」(PID:{pid})が'
@@ -527,7 +527,7 @@ class NetworkCollector:
             if sig == '未署名' and not self._is_trusted_path(cd['proc_path']):
                 findings.append({
                     'status': 'WARNING',
-                    'reason': f'未署名プロセスの外部通信: {cd["proc_name"]}',
+                    'reason': f'未署名プロセスの外部通信: {cd["proc_name"]} | {cd["proc_path"]}',
                     'desc': build_tutor_desc(
                         detection=(
                             f'デジタル署名のないプロセス「{cd["proc_name"]}」(PID:{pid})が'
