@@ -4,6 +4,8 @@
 import os
 import re
 import struct
+import ctypes
+import ctypes.wintypes
 import winreg
 import subprocess
 import json
@@ -504,6 +506,213 @@ class EvidenceCollector:
         return 0
 
     # ==============================================================
+    # 2a. Prefetch ヘルパー (P45: 深層解析)
+    # ==============================================================
+
+    # ERR-P45-001: Prefetch MAM圧縮解凍
+    def _decompress_prefetch(self, filepath):
+        """Prefetchファイルを読み込み、MAM圧縮なら解凍して返す。失敗時はNone。"""
+        try:
+            with open(filepath, 'rb') as f:
+                buf = f.read()
+        except (PermissionError, OSError):
+            return None
+
+        if len(buf) < 8:
+            return None
+
+        # MAM圧縮判定（先頭4バイト = b'MAM' + bytes([4])）
+        if buf[:4] == b'MAM' + bytes([4]):
+            return self._mam_decompress(buf)
+
+        # 非圧縮: Prefetchシグネチャ確認
+        sig = struct.unpack_from('<I', buf, 0)[0]
+        if sig in (0x11, 0x17, 0x1A, 0x1E, 0x1F):
+            return buf
+
+        # バージョンフィールドがオフセット0にない古い形式
+        # SCCA シグネチャ確認 (offset 4-7)
+        if len(buf) >= 8 and buf[4:8] == b'SCCA':
+            return buf
+
+        return None
+
+    # ERR-P45-002: MAM (Xpress Huffman) 解凍
+    def _mam_decompress(self, buf):
+        """Windows API RtlDecompressBufferEx でMAM圧縮を解凍する。"""
+        try:
+            # MAMヘッダ: 4byte sig + 4byte uncompressed_size
+            if len(buf) < 8:
+                return None
+            uncompressed_size = struct.unpack_from('<I', buf, 4)[0]
+            compressed_data = buf[8:]
+
+            ntdll = ctypes.windll.ntdll
+
+            # COMPRESSION_FORMAT_XPRESS_HUFF = 4
+            COMPRESSION_FORMAT_XPRESS_HUFF = 4
+
+            # RtlGetCompressionWorkSpaceSize
+            workspace_size = ctypes.c_ulong(0)
+            fragment_size = ctypes.c_ulong(0)
+            status = ntdll.RtlGetCompressionWorkSpaceSize(
+                COMPRESSION_FORMAT_XPRESS_HUFF,
+                ctypes.byref(workspace_size),
+                ctypes.byref(fragment_size)
+            )
+            if status != 0:
+                return None
+
+            workspace = ctypes.create_string_buffer(workspace_size.value)
+            output_buf = ctypes.create_string_buffer(uncompressed_size)
+            final_size = ctypes.c_ulong(0)
+
+            # RtlDecompressBufferEx
+            status = ntdll.RtlDecompressBufferEx(
+                COMPRESSION_FORMAT_XPRESS_HUFF,
+                output_buf,
+                uncompressed_size,
+                compressed_data,
+                len(compressed_data),
+                ctypes.byref(final_size),
+                workspace
+            )
+            if status != 0:
+                return None
+
+            return output_buf.raw[:final_size.value]
+        except Exception:
+            return None
+
+    # ERR-P45-003: Prefetchヘッダパース
+    def _parse_prefetch_header(self, data):
+        """Prefetchバイナリからヘッダ情報を抽出する。"""
+        result = {
+            'version': 0, 'version_label': '', 'exe_name': '',
+            'run_count': 0, 'last_run_time': '',
+            'run_times': [], 'file_strings_offset': 0,
+            'file_strings_size': 0,
+        }
+
+        if not data or len(data) < 84:
+            return result
+
+        # バージョン判定
+        version = struct.unpack_from('<I', data, 0)[0]
+        # SCCA形式: offset 0-3がバージョンでない場合、offset 4-7がSCCA
+        if data[4:8] == b'SCCA':
+            version = struct.unpack_from('<I', data, 0)[0]
+
+        version_map = {
+            17: 'WinXP (v17)',
+            23: 'Vista/7 (v23)',
+            26: 'Win8/8.1 (v26)',
+            30: 'Win10/11 (v30)',
+            31: 'Win11 (v31)',
+        }
+        result['version'] = version
+        result['version_label'] = version_map.get(version, f'Unknown (v{version})')
+
+        # 実行ファイル名（offset 16、60バイト、UTF-16LE）
+        try:
+            raw_name = data[16:76]
+            exe_name = raw_name.decode('utf-16-le', errors='ignore').split('\\x00')[0]
+            result['exe_name'] = exe_name
+        except Exception:
+            pass
+
+        # ファイル名文字列テーブル情報
+        try:
+            if version == 17:
+                result['file_strings_offset'] = struct.unpack_from('<I', data, 100)[0]
+                result['file_strings_size'] = struct.unpack_from('<I', data, 104)[0]
+            elif version == 23:
+                result['file_strings_offset'] = struct.unpack_from('<I', data, 116)[0]
+                result['file_strings_size'] = struct.unpack_from('<I', data, 120)[0]
+            elif version in (26, 30):
+                # v26/v30: RunCount at 208, LastRunTime x8 at 176
+                result['run_count'] = struct.unpack_from('<I', data, 208)[0]
+                run_times = []
+                for idx in range(8):
+                    offset = 176 + (idx * 8)
+                    if offset + 8 <= len(data):
+                        ft = struct.unpack_from('<Q', data, offset)[0]
+                        ts = self._filetime_to_str(ft)
+                        if ts:
+                            run_times.append(ts)
+                result['run_times'] = run_times
+                result['last_run_time'] = run_times[0] if run_times else ''
+
+            elif version == 31:
+                # v31 (Win11): RunCount at 200, LastRunTime x8 at 128
+                result['run_count'] = struct.unpack_from('<I', data, 200)[0]
+                run_times = []
+                for idx in range(8):
+                    offset = 128 + (idx * 8)
+                    if offset + 8 <= len(data):
+                        ft = struct.unpack_from('<Q', data, offset)[0]
+                        ts = self._filetime_to_str(ft)
+                        if ts:
+                            run_times.append(ts)
+                result['run_times'] = run_times
+                result['last_run_time'] = run_times[0] if run_times else ''
+
+        except Exception:
+            pass
+
+        return result
+
+    # ERR-P45-004: FILETIME→文字列変換
+    def _filetime_to_str(self, ft):
+        """Windows FILETIME (100ns since 1601-01-01) を文字列に変換。"""
+        if ft == 0 or ft > 0x7FFFFFFFFFFFFFFF:
+            return ''
+        try:
+            # FILETIME epoch: 1601-01-01, Unix epoch差: 11644473600秒
+            timestamp = (ft - 116444736000000000) / 10000000
+            if timestamp < 0 or timestamp > 4102444800:  # 2100年まで
+                return ''
+            dt = datetime.fromtimestamp(timestamp)
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except (OSError, ValueError, OverflowError):
+            return ''
+
+    # ERR-P45-005: ロード済みファイルリスト抽出
+    def _extract_loaded_files(self, data, pf_info):
+        """Prefetch内のファイル名テーブルからロード済みファイルを抽出。"""
+        loaded = []
+        offset = pf_info.get('file_strings_offset', 0)
+        size = pf_info.get('file_strings_size', 0)
+
+        if offset == 0 or size == 0 or offset + size > len(data):
+            return loaded
+
+        try:
+            raw = data[offset:offset + size]
+            # UTF-16LEのヌル終端文字列リスト
+            text = raw.decode('utf-16-le', errors='ignore')
+            files = [f.strip() for f in text.split('\\x00') if f.strip()]
+
+            suspicious_dirs = [
+                '\\\\temp\\\\', '\\\\tmp\\\\', '\\\\appdata\\\\local\\\\temp\\\\',
+                '\\\\users\\\\public\\\\', '\\\\downloads\\\\',
+                '\\\\perflogs\\\\', '\\\\.bin\\\\',
+                '\\\\programdata\\\\',
+            ]
+
+            for fpath in files:
+                fl = fpath.lower()
+                is_suspicious = any(sd in fl for sd in suspicious_dirs)
+                is_dll = fl.endswith('.dll') or fl.endswith('.ocx') or fl.endswith('.drv')
+                if is_suspicious and is_dll:
+                    loaded.append(fpath)
+
+        except Exception:
+            pass
+
+        return loaded
+
+    # ==============================================================
     # 2. Prefetch 解析
     # ==============================================================
     def _scan_prefetch(self):
@@ -541,36 +750,82 @@ class EvidenceCollector:
                 if not filename.upper().endswith('.PF'):
                     continue
                 filepath = os.path.join(prefetch_dir, filename)
+
+                # ファイルシステムのmtime（フォールバック用）
                 try:
                     mtime = os.path.getmtime(filepath)
                     dt = datetime.fromtimestamp(mtime)
                     dt_str = dt.strftime('%Y-%m-%d %H:%M:%S')
                 except Exception:
-                    dt_str = ""
+                    dt_str = ''
 
                 exe_name = re.sub(r'-[A-F0-9]{8}\.pf$', '', filename, flags=re.IGNORECASE)
-                extra = f"Prefetchファイル: {filename}"
-                if dt_str:
-                    extra += f"\n最終更新: {dt_str}"
 
-                result = self._analyze_exe_path(exe_name, "Prefetch (実行キャッシュ)", extra)
+                # P45: Prefetchバイナリ深層解析
+                pf_info = None
+                run_count = 0
+                last_run = ''
+                run_times_str = ''
+                pf_version = ''
+                loaded_suspicious = ''
+
+                pf_data = self._decompress_prefetch(filepath)
+                if pf_data:
+                    pf_info = self._parse_prefetch_header(pf_data)
+                    if pf_info:
+                        run_count = pf_info.get('run_count', 0)
+                        last_run = pf_info.get('last_run_time', '')
+                        run_times_list = pf_info.get('run_times', [])
+                        run_times_str = ', '.join(run_times_list) if run_times_list else ''
+                        pf_version = pf_info.get('version_label', '')
+
+                        # ロード済みファイルの不審DLL検出
+                        suspicious_files = self._extract_loaded_files(pf_data, pf_info)
+                        if suspicious_files:
+                            loaded_suspicious = '; '.join(suspicious_files[:10])
+                            if len(suspicious_files) > 10:
+                                loaded_suspicious += f' ...他{len(suspicious_files)-10}件'
+
+                # 時刻: ヘッダのLastRunTimeを優先、なければmtime
+                display_time = last_run if last_run else dt_str
+
+                extra = f'Prefetchファイル: {filename}'
+                if display_time:
+                    extra += f'\\n最終実行: {display_time}'
+                if run_count > 0:
+                    extra += f'\\n実行回数: {run_count}回'
+                if pf_version:
+                    extra += f'\\nPFバージョン: {pf_version}'
+                if loaded_suspicious:
+                    extra += f'\\n不審DLL: {loaded_suspicious}'
+
+                result = self._analyze_exe_path(exe_name, 'Prefetch (実行キャッシュ)', extra)
                 if len(result) == 5:
                     status, reason, desc, sig_st, sig_name = result
                 else:
-                    status, reason, desc = result; sig_st = ""; sig_name = ""
-                if status == "SAFE":
+                    status, reason, desc = result; sig_st = ''; sig_name = ''
+                if status == 'SAFE':
                     continue
-                results.append({
-                    "source": "Prefetch",
-                    "artifact": exe_name,
-                    "detail": filename,
-                    "time": dt_str,
-                    "status": status,
+
+                entry = {
+                    'source': 'Prefetch',
+                    'artifact': exe_name,
+                    'detail': filename,
+                    'time': display_time,
+                    'status': status,
                     'sig_status': sig_st,
                     'sig_signer': sig_name,
-                    "reason": reason,
-                    "desc": desc,
-                })
+                    'reason': reason,
+                    'desc': desc,
+                    # P45追加フィールド
+                    'run_count': run_count,
+                    'last_run_time': last_run,
+                    'run_times': run_times_str,
+                    'pf_version': pf_version,
+                    'loaded_files_suspicious': loaded_suspicious,
+                }
+                results.append(entry)
+
         except PermissionError:
             results.append({
                 "source": "Prefetch",

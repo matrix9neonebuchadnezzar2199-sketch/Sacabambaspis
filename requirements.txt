@@ -4,3 +4,4 @@ pyinstaller
 sigma-rule-matcher
 pySigma
 pyyaml
+pefile
