@@ -99,3 +99,60 @@ def extract_signer_name(signer_subject):
 def clear_cache():
     """キャッシュをクリア（スキャン毎にリセット用）"""
     _cache.clear()
+
+
+def batch_verify_signatures(file_paths, batch_size=100):
+    """複数ファイルの署名を一括検証（PowerShell 1回で最大batch_size件処理）"""
+    if not file_paths:
+        return
+
+    # キャッシュ済みを除外 + 重複除去
+    seen = set()
+    uncached = []
+    for p in file_paths:
+        if not p:
+            continue
+        normalized = os.path.normpath(p).lower()
+        if normalized not in _cache and normalized not in seen and os.path.isfile(p):
+            uncached.append(p)
+            seen.add(normalized)
+
+    if not uncached:
+        return
+
+    # バッチ処理（Get-AuthenticodeSignature を1回だけ呼ぶ）
+    for i in range(0, len(uncached), batch_size):
+        batch = uncached[i:i + batch_size]
+
+        # PowerShellスクリプト: 1ファイル1回のGet-AuthenticodeSignature
+        ps_parts = []
+        for fp in batch:
+            safe = fp.replace("'", "''")
+            ps_parts.append(
+                f"$s=Get-AuthenticodeSignature '{safe}';"
+                f"'{safe}|'+$s.Status+'|'+($s.SignerCertificate.Subject -replace ',',';')"
+            )
+
+        ps_script = "; ".join(ps_parts)
+        try:
+            r = subprocess.run(
+                ['powershell', '-NoProfile', '-Command', ps_script],
+                capture_output=True, text=True, timeout=60,
+                encoding='utf-8', errors='replace'
+            )
+            for line in r.stdout.strip().split('\n'):
+                line = line.strip()
+                if not line or '|' not in line:
+                    continue
+                parts = line.split('|', 2)
+                if len(parts) >= 2:
+                    fpath = parts[0].strip()
+                    status = parts[1].strip()
+                    signer = parts[2].strip() if len(parts) > 2 else ''
+                    normalized = os.path.normpath(fpath).lower()
+                    _cache[normalized] = (status, signer)
+        except subprocess.TimeoutExpired:
+            logger.debug(f"バッチ署名検証タイムアウト (batch {i}-{i+len(batch)})")
+        except Exception as e:
+            logger.debug(f"バッチ署名検証エラー: {e}")
+

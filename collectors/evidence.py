@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from utils.tutor_template import build_tutor_desc
 
 try:
-    from utils.signature import verify_signature, is_trusted_signer, is_hardcore_tool, extract_signer_name, clear_cache
+    from utils.signature import verify_signature, is_trusted_signer, is_hardcore_tool, extract_signer_name, clear_cache, batch_verify_signatures
 except ImportError:
     verify_signature = None
 
@@ -69,12 +69,87 @@ class EvidenceCollector:
     # ==============================================================
     def scan(self):
         if clear_cache: clear_cache()  # 署名キャッシュリセット
+
+        # Phase 1: 全サブスキャンを実行（署名検証なし）
+        # Phase 2: 結果からユニークパスを収集しバッチ署名検証
+        # Phase 3: 署名結果を反映
+
+        # まず署名検証を無効化して高速スキャン
+        import utils.signature as _sig_mod
+        _orig_verify = _sig_mod.verify_signature
+        _sig_mod.verify_signature = None
+        global verify_signature
+        _bk = verify_signature
+        verify_signature = None
+
         evidence = []
         evidence.extend(self._scan_userassist())
         evidence.extend(self._scan_prefetch())
         evidence.extend(self._scan_shimcache())
         evidence.extend(self._scan_amcache())
         evidence.extend(self._scan_bam())
+
+        # 署名検証を復元
+        _sig_mod.verify_signature = _orig_verify
+        verify_signature = _bk
+
+        # 信頼パスリスト
+        _trusted_dirs = [
+            'c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
+            'c:\\program files\\', 'c:\\program files (x86)\\',
+            'c:\\windows\\winsxs\\', 'c:\\windows\\microsoft.net\\',
+            'c:\\windows\\servicing\\', 'c:\\windows\\immersivecontrolpanel\\',
+            'c:\\windows\\systemapps\\',
+        ]
+
+        # ユニークパスを収集（信頼パスは署名検証スキップ）
+        untrusted_paths = set()
+        trusted_path_set = set()
+        for item in evidence:
+            art = item.get('artifact', '')
+            if not art:
+                continue
+            art_lower = art.lower()
+            if any(art_lower.startswith(d) for d in _trusted_dirs):
+                trusted_path_set.add(art)
+            elif os.path.isfile(art):
+                untrusted_paths.add(art)
+
+        # バッチ署名検証（不審パスのみ）
+        if batch_verify_signatures and untrusted_paths:
+            batch_verify_signatures(list(untrusted_paths))
+
+        # 署名結果を各アイテムに反映
+        for item in evidence:
+            art = item.get('artifact', '')
+            if not art:
+                continue
+            art_lower = art.lower()
+
+            # 信頼パス → 署名検証不要、そのまま信頼
+            if any(art_lower.startswith(d) for d in _trusted_dirs):
+                item['sig_status'] = 'TrustedPath'
+                item['sig_signer'] = '信頼パス'
+                basename = os.path.basename(art_lower).replace('.exe', '')
+                if not is_hardcore_tool(basename) and item.get('status') in ('WARNING', 'INFO'):
+                    item['status'] = 'SAFE'
+                    item['reason'] = '信頼パス内の正規ファイル'
+                continue
+
+            # 不審パス → 署名検証結果を反映
+            if verify_signature:
+                sig_status, sig_signer = verify_signature(art)
+                sig_org = extract_signer_name(sig_signer)
+                sig_trusted = (sig_status == 'Valid' and is_trusted_signer(sig_signer))
+                item['sig_status'] = sig_status
+                item['sig_signer'] = sig_org
+
+                if sig_trusted and item.get('status') in ('WARNING', 'INFO'):
+                    basename = os.path.basename(art_lower).replace('.exe', '')
+                    if not is_hardcore_tool(basename):
+                        item['status'] = 'SAFE'
+                        item['reason'] = f"正規署名済み: {sig_org}"
+
         return evidence
 
     # ==============================================================
