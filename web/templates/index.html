@@ -3024,6 +3024,7 @@ function getDetailFields(tab, d) {
             { label: '実行ユーザー', value: d.user || '-' },
             { label: 'デジタル署名', value: d.signature || '-', type: d.signature === '未署名' ? 'danger' : d.signature === '署名済み' ? 'safe' : '' },
             { label: '接続数', value: d.conn_count || '-' },
+            { label: '接続先一覧', value: d.peer_details || '-' },
             { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
             { label: '解説', value: d.desc || '-' },
             { label: '判定', value: statusText, type: statusType }
