@@ -687,6 +687,11 @@
                 <span class="sidebar-item-text">LNK解析</span>
                 <span class="sidebar-item-badge" id="lnk-count" style="display:none;">0</span>
             </div>
+            <div class="sidebar-item" data-tab="mutant" onclick="switchTab('mutant', this)">
+                <span class="sidebar-item-icon">🔒</span>
+                <span class="sidebar-item-text">ミューテックス</span>
+                <span class="sidebar-item-badge" id="mutant-count" style="display:none;">0</span>
+            </div>
             <div class="sidebar-item" data-tab="memdump" onclick="switchTab('memdump', this)">
                 <span class="sidebar-item-icon">🧠</span>
                 <span class="sidebar-item-text">メモリ抽出</span>
@@ -1222,6 +1227,12 @@
             <h2>🔗 LNKファイル不審属性解析</h2>
             <p class="tab-description">Recent/Startup/Desktop の LNK ショートカットファイルを解析し、隠しウィンドウ実行・不審引数・Base64エンコード等の攻撃属性を検出します。</p>
             <div id="lnk-table" class="table-container"></div>
+        </div>
+
+        <div id="tab-mutant" aria-label="ミューテックス検知結果" class="card">
+            <h2>🔒 ミューテックス（Mutant）検知</h2>
+            <p class="tab-description">既知のマルウェアが使用するミューテックス名をOpenMutexW APIでチェックし、実行中のマルウェアを検出します。</p>
+            <div id="mutant-table" class="table-container"></div>
         </div>
 
             <div id="tab-memdump" aria-label="メモリ抽出・解析" class="card">
@@ -2472,6 +2483,24 @@ function renderTables(keyword) {
                 );
                 updateTabBadge('lnk', allData.lnk);
             }
+
+            // Mutant
+            if (allData.mutant) {
+                renderTableGeneric('mutant', allData.mutant, document.getElementById('mutant-table'),
+                    ['status','artifact','detail','reason'],
+                    ['判定','ミューテックス名','マルウェア情報','検知理由'],
+                    function(i, idx) {
+                        var rowClass = i.status === 'DANGER' ? 'danger' : (i.status === 'WARNING' ? 'warning' : 'safe');
+                        return '<tr class="' + rowClass + ' clickable-row" data-tab="mutant" data-idx="' + idx + '" data-uid="' + (i._uid||'') + '" style="cursor:pointer">' +
+                            '<td>' + statusBadge(i.status) + '</td>' +
+                            '<td>' + (i.artifact || '-') + '</td>' +
+                            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.detail || '-') + '</td>' +
+                            '<td>' + (i.reason || '-') + '</td>' +
+                            '</tr>';
+                    }
+                );
+                updateTabBadge('mutant', allData.mutant);
+            }
         const key = getItemKey('recall', i);
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
@@ -3112,6 +3141,17 @@ function getDetailFields(tab, d) {
             { label: 'IOC深刻度', value: d.ioc_severity || '-', type: d.ioc_severity === 'critical' ? 'danger' : (d.ioc_severity === 'high' ? 'warning' : '') },
             { label: '判定', value: statusText, type: statusType }
         ];
+                case 'mutant': return [
+                    { label: 'ミューテックス名', value: d.artifact || '-' },
+                    { label: 'マルウェア名', value: d.malware_name || '-', type: d.malware_name ? 'danger' : '' },
+                    { label: 'カテゴリ', value: d.category || '-' },
+                    { label: 'MITRE', value: d.mitre || '-' },
+                    { label: '深刻度', value: d.severity || '-', type: d.severity === 'critical' ? 'danger' : (d.severity === 'high' ? 'warning' : '') },
+                    { label: '検知理由', value: d.reason || '-', type: d.status === 'DANGER' ? 'danger' : '' },
+                    { label: '解説', value: d.desc || '-' },
+                    { label: '判定', value: statusText, type: statusType }
+                ];
+                
                 case 'lnk': return [
                     { label: 'LNK名', value: d.lnk_name || '-' },
                     { label: 'LNKパス', value: d.lnk_path || '-' },
@@ -3315,6 +3355,9 @@ function bulkRegisterImportant() {
     });
 
     /* 痕跡 */
+            if (allData.mutant) allData.mutant.forEach(function(i,idx){
+                if (i.status !== 'SAFE') items.push({ time: '-', source: 'Mutant', name: i.artifact, detail: i.detail, status: i.status, _src: i, _tab: 'mutant', _idx: idx });
+            });
             if (allData.lnk) allData.lnk.forEach(function(i,idx){
                 items.push({ time: i.creation_time||'-', source: 'LNK', name: i.lnk_name, detail: i.suspicious_flags, status: i.status, _src: i, _tab: 'lnk', _idx: idx });
             });

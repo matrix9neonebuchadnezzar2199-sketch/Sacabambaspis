@@ -29,6 +29,7 @@ from collectors.srum import SRUMCollector
 from collectors.recall import RecallCollector
 from collectors.binary_rename import BinaryRenameCollector
 from collectors.lnk_forensics import LnkForensicsCollector
+from collectors.mutant import MutantCollector
 
 
 # --- 設定 ---
@@ -872,6 +873,11 @@ def _run_scan():
         lnk_c = LnkForensicsCollector()
         lnk_results = lnk_c.scan()
 
+        # 15. Mutant (ミューテックス)
+        update("ミューテックス検知中...", 97)
+        mutant_c = MutantCollector()
+        mutant_results = mutant_c.scan()
+
         # Self-marking
         update("自己除外処理中...", 96)
         self_pids = {self_pid, self_ppid}
@@ -900,6 +906,8 @@ def _run_scan():
             br['is_self'] = False
         for lnk in lnk_results:
             lnk['is_self'] = False
+        for mt in mutant_results:
+            mt['is_self'] = False
         for p in persistence:
             p['is_self'] = False
 
@@ -917,7 +925,8 @@ def _run_scan():
                 sum(1 for x in srum_results if x['status']=='DANGER') + \
                 sum(1 for x in recall_results if x['status']=='DANGER') + \
                 sum(1 for x in binrename_results if x['status']=='DANGER') + \
-                sum(1 for x in lnk_results if x['status']=='DANGER')
+                sum(1 for x in lnk_results if x['status']=='DANGER') + \
+                sum(1 for x in mutant_results if x['status']=='DANGER')
 
         # UUID付与（証拠保全用一意識別子）
         assign_uids(procs)
@@ -934,6 +943,7 @@ def _run_scan():
         assign_uids(recall_results)
         assign_uids(binrename_results)
         assign_uids(lnk_results)
+        assign_uids(mutant_results)
 
         scan_results = {
             "system": {
@@ -955,7 +965,8 @@ def _run_scan():
             "srum": srum_results,
             "recall": recall_results,
             "binrename": binrename_results,
-            "lnk": lnk_results
+            "lnk": lnk_results,
+            "mutant": mutant_results
         }
 
         threat_assessment = calculate_threat_score(scan_results)
