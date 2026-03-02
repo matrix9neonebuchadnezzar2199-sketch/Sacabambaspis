@@ -3105,6 +3105,11 @@ function getDetailFields(tab, d) {
             { label: '実行履歴 (PF)', value: d.run_times || '-' },
             { label: 'PFバージョン', value: d.pf_version || '-' },
             { label: '不審ロードDLL', value: d.loaded_files_suspicious || '-', type: d.loaded_files_suspicious ? 'warning' : '' },
+            { label: 'SHA1ハッシュ', value: d.sha1 || '-' },
+            { label: 'IOCマッチ', value: d.ioc_match || '-', type: d.ioc_match ? 'danger' : '' },
+            { label: 'IOCカテゴリ', value: d.ioc_category || '-' },
+            { label: 'IOC MITRE', value: d.ioc_mitre || '-' },
+            { label: 'IOC深刻度', value: d.ioc_severity || '-', type: d.ioc_severity === 'critical' ? 'danger' : (d.ioc_severity === 'high' ? 'warning' : '') },
             { label: '判定', value: statusText, type: statusType }
         ];
                 case 'lnk': return [

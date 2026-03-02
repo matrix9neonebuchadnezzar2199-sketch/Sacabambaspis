@@ -5,3 +5,4 @@ sigma-rule-matcher
 pySigma
 pyyaml
 pefile
+python-registry

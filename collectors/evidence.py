@@ -17,6 +17,11 @@ try:
 except ImportError:
     verify_signature = None
 
+try:
+    from utils.ioc_database import check_sha1_ioc
+except ImportError:
+    check_sha1_ioc = None
+
 
 class EvidenceCollector:
     """実行痕跡解析 - フォレンジック5大アーティファクト
@@ -992,180 +997,170 @@ class EvidenceCollector:
     # 4. Amcache 解析
     # ==============================================================
     def _scan_amcache(self):
+        """Amcache解析 - VSSコピー + python-registry によるオフラインパース"""
         results = []
-        amcache_path = r"C:\Windows\appcompat\Programs\Amcache.hve"
+        amcache_path = r'C:\Windows\appcompat\Programs\Amcache.hve'
 
         if not os.path.exists(amcache_path):
             return results
 
-        # Amcache.hveはロックされているのでesentutlでコピー
+        # python-registry import
+        try:
+            from Registry import Registry
+        except ImportError:
+            return results
+
         temp_dir = os.environ.get('TEMP', r'C:\Windows\Temp')
-        temp_hive = os.path.join(temp_dir, 'amcache_copy.hve')
+        temp_hive = os.path.join(temp_dir, 'amcache_saca.hve')
 
-        try:
-            # esentutlでコピー
-            subprocess.run(
-                ['esentutl', '/y', amcache_path, '/d', temp_hive],
-                capture_output=True, timeout=30,
-                creationflags=0x08000000)
-        except Exception:
-            # esentutl失敗時はregコマンドで直接読み取り試行
-            return self._scan_amcache_registry(results)
-
-        if not os.path.exists(temp_hive):
-            return self._scan_amcache_registry(results)
-
-        try:
-            # reg loadでハイブをマウント
-            hive_key = "HKLM\\TEMP_AMCACHE"
-            subprocess.run(
-                ['reg', 'load', hive_key, temp_hive],
-                capture_output=True, timeout=15,
-                creationflags=0x08000000)
-
+        # ERR-P46-010: VSSからAmcache.hveをコピー
+        copied = self._copy_amcache_via_vss(amcache_path, temp_hive)
+        if not copied:
+            # VSSフォールバック: 直接コピー試行
             try:
-                # InventoryApplicationFile を列挙
-                inv_path = r"TEMP_AMCACHE\Root\InventoryApplicationFile"
-                try:
-                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, inv_path, 0,
-                                        winreg.KEY_READ) as inv_key:
-                        idx = 0
-                        while True:
-                            try:
-                                app_name = winreg.EnumKey(inv_key, idx)
-                                idx += 1
-                            except OSError:
-                                break
-                            try:
-                                with winreg.OpenKey(inv_key, app_name) as app_key:
-                                    lower_path = ""
-                                    sha1 = ""
-                                    publisher = ""
-                                    link_date = ""
-                                    try:
-                                        v, _ = winreg.QueryValueEx(app_key, "LowerCaseLongPath")
-                                        lower_path = str(v)
-                                    except OSError:
-                                        pass
-                                    try:
-                                        v, _ = winreg.QueryValueEx(app_key, "FileId")
-                                        sha1_raw = str(v)
-                                        if sha1_raw.startswith("0000"):
-                                            sha1 = sha1_raw[4:]
-                                        else:
-                                            sha1 = sha1_raw
-                                    except OSError:
-                                        pass
-                                    try:
-                                        v, _ = winreg.QueryValueEx(app_key, "Publisher")
-                                        publisher = str(v)
-                                    except OSError:
-                                        pass
-                                    try:
-                                        v, _ = winreg.QueryValueEx(app_key, "LinkDate")
-                                        link_date = str(v)
-                                    except OSError:
-                                        pass
+                import shutil
+                shutil.copy2(amcache_path, temp_hive)
+                copied = os.path.exists(temp_hive)
+            except Exception:
+                pass
+        if not copied:
+            return results
 
-                                    if not lower_path:
-                                        continue
+        try:
+            reg = Registry.Registry(temp_hive)
 
-                                    extra = ""
-                                    if sha1:
-                                        extra += f"SHA1: {sha1}\n"
-                                    if publisher:
-                                        extra += f"発行者: {publisher}\n"
-                                    if link_date:
-                                        extra += f"リンク日: {link_date}"
+            # InventoryApplicationFile 解析
+            try:
+                inv_key = reg.open('Root\\InventoryApplicationFile')
+                for sk in inv_key.subkeys():
+                    lower_path = ''
+                    sha1 = ''
+                    publisher = ''
+                    link_date = ''
+                    program_id = ''
 
-                                    result = self._analyze_exe_path(lower_path, "Amcache (実行記録+ハッシュ)", extra)
-                                    if len(result) == 5:
-                                        status, reason, desc, sig_st, sig_name = result
-                                    else:
-                                        status, reason, desc = result; sig_st = ""; sig_name = ""
-                                    if status == "SAFE":
-                                        continue
-                                    results.append({
-                                        "source": "Amcache",
-                                        "artifact": lower_path,
-                                        "detail": f"SHA1: {sha1}" if sha1 else app_name,
-                                        "time": link_date,
-                                        "status": status,
-                                        'sig_status': sig_st,
-                                        'sig_signer': sig_name,
-                                        "reason": reason,
-                                        "desc": desc,
-                                    })
-                            except OSError:
-                                continue
-                except OSError:
-                    pass
+                    for v in sk.values():
+                        vname = v.name()
+                        if vname == 'LowerCaseLongPath':
+                            lower_path = str(v.value())
+                        elif vname == 'FileId':
+                            sha1_raw = str(v.value())
+                            if sha1_raw.startswith('0000'):
+                                sha1 = sha1_raw[4:]
+                            else:
+                                sha1 = sha1_raw
+                        elif vname == 'Publisher':
+                            publisher = str(v.value())
+                        elif vname == 'LinkDate':
+                            link_date = str(v.value())
+                        elif vname == 'ProgramId':
+                            program_id = str(v.value())
 
-                # File キーも試行 (古い形式)
-                file_path = r"TEMP_AMCACHE\Root\File"
-                try:
-                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, file_path, 0,
-                                        winreg.KEY_READ) as file_key:
-                        fidx = 0
-                        while True:
-                            try:
-                                vol = winreg.EnumKey(file_key, fidx)
-                                fidx += 1
-                            except OSError:
-                                break
-                            try:
-                                with winreg.OpenKey(file_key, vol) as vol_key:
-                                    eidx = 0
-                                    while True:
-                                        try:
-                                            entry_id = winreg.EnumKey(vol_key, eidx)
-                                            eidx += 1
-                                        except OSError:
-                                            break
-                                        try:
-                                            with winreg.OpenKey(vol_key, entry_id) as ekey:
-                                                fpath = ""
-                                                try:
-                                                    v, _ = winreg.QueryValueEx(ekey, "15")  # FullPath
-                                                    fpath = str(v)
-                                                except OSError:
-                                                    pass
-                                                if not fpath:
-                                                    continue
-                                                result = self._analyze_exe_path(fpath, "Amcache (File)", "")
-                                                if len(result) == 5:
-                                                    status, reason, desc, sig_st, sig_name = result
-                                                else:
-                                                    status, reason, desc = result; sig_st = ""; sig_name = ""
-                                                if status != "SAFE":
-                                                    results.append({
-                                                        "source": "Amcache",
-                                                        "artifact": fpath,
-                                                        "detail": entry_id,
-                                                        "time": "",
-                                                        "status": status,
-                                                        'sig_status': sig_st,
-                                                        'sig_signer': sig_name,
-                                                        "reason": reason,
-                                                        "desc": desc,
-                                                    })
-                                        except OSError:
-                                            continue
-                            except OSError:
-                                continue
-                except OSError:
-                    pass
+                    if not lower_path:
+                        continue
 
-            finally:
-                # ハイブをアンロード
-                subprocess.run(
-                    ['reg', 'unload', hive_key],
-                    capture_output=True, timeout=15,
-                    creationflags=0x08000000)
+                    extra = ''
+                    if sha1:
+                        extra += 'SHA1: ' + sha1 + '\\n'
+
+                    # P46: SHA1 IOC照合
+                    ioc_hit = None
+                    if check_sha1_ioc and sha1:
+                        ioc_hit = check_sha1_ioc(sha1)
+                        if ioc_hit:
+                            extra += 'IOC一致: ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')\\n'
+                            extra += 'MITRE: ' + ioc_hit['mitre'] + ' | 深刻度: ' + ioc_hit['severity'] + '\\n'
+
+                    if publisher:
+                        extra += '発行者: ' + publisher + '\\n'
+                    if link_date:
+                        extra += 'リンク日: ' + link_date
+
+                    result = self._analyze_exe_path(lower_path, 'Amcache (実行記録+ハッシュ)', extra)
+                    if len(result) == 5:
+                        status, reason, desc, sig_st, sig_name = result
+                    else:
+                        status, reason, desc = result; sig_st = ''; sig_name = ''
+
+                    # P46: IOCマッチでDANGER昇格
+                    if ioc_hit:
+                        status = 'DANGER'
+                        reason = 'IOC一致: ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')'
+
+                    if status == 'SAFE':
+                        continue
+
+                    results.append({
+                        'source': 'Amcache',
+                        'artifact': lower_path,
+                        'detail': ('SHA1: ' + sha1) if sha1 else sk.name(),
+                        'time': link_date,
+                        'status': status,
+                        'sig_status': sig_st,
+                        'sig_signer': sig_name,
+                        'reason': reason,
+                        'desc': desc,
+                        'sha1': sha1,
+                        'ioc_match': ioc_hit.get('name', '') if ioc_hit else '',
+                        'ioc_category': ioc_hit.get('category_jp', '') if ioc_hit else '',
+                        'ioc_mitre': ioc_hit.get('mitre', '') if ioc_hit else '',
+                        'ioc_severity': ioc_hit.get('severity', '') if ioc_hit else '',
+                    })
+            except Exception:
+                pass
+
+            # File キー（旧形式）も解析
+            try:
+                file_key = reg.open('Root\\File')
+                for vol_key in file_key.subkeys():
+                    for entry_key in vol_key.subkeys():
+                        fpath = ''
+                        sha1_f = ''
+                        for v in entry_key.values():
+                            if v.name() == '15':  # FullPath
+                                fpath = str(v.value())
+                            elif v.name() == '101':  # SHA1
+                                sha1_raw = str(v.value())
+                                if sha1_raw.startswith('0000'):
+                                    sha1_f = sha1_raw[4:]
+                                else:
+                                    sha1_f = sha1_raw
+                        if not fpath:
+                            continue
+                        ioc_hit_f = None
+                        if check_sha1_ioc and sha1_f:
+                            ioc_hit_f = check_sha1_ioc(sha1_f)
+                        result = self._analyze_exe_path(fpath, 'Amcache (File)', '')
+                        if len(result) == 5:
+                            status, reason, desc, sig_st, sig_name = result
+                        else:
+                            status, reason, desc = result; sig_st = ''; sig_name = ''
+                        if ioc_hit_f:
+                            status = 'DANGER'
+                            reason = 'IOC一致: ' + ioc_hit_f['name']
+                        if status != 'SAFE':
+                            results.append({
+                                'source': 'Amcache',
+                                'artifact': fpath,
+                                'detail': ('SHA1: ' + sha1_f) if sha1_f else entry_key.name(),
+                                'time': '',
+                                'status': status,
+                                'sig_status': sig_st,
+                                'sig_signer': sig_name,
+                                'reason': reason,
+                                'desc': desc,
+                                'sha1': sha1_f,
+                                'ioc_match': ioc_hit_f.get('name', '') if ioc_hit_f else '',
+                                'ioc_category': ioc_hit_f.get('category_jp', '') if ioc_hit_f else '',
+                                'ioc_mitre': ioc_hit_f.get('mitre', '') if ioc_hit_f else '',
+                                'ioc_severity': ioc_hit_f.get('severity', '') if ioc_hit_f else '',
+                            })
+            except Exception:
+                pass
+
         except Exception:
             pass
         finally:
-            # 一時ファイル削除
             try:
                 if os.path.exists(temp_hive):
                     os.remove(temp_hive)
@@ -1174,61 +1169,36 @@ class EvidenceCollector:
 
         return results
 
-    def _scan_amcache_registry(self, results):
-        """Amcacheハイブコピー失敗時のフォールバック: PowerShellで直接読み取り"""
+    # ERR-P46-011: VSSからAmcache.hveをコピー
+    def _copy_amcache_via_vss(self, src_path, dest_path):
+        """Volume Shadow Copyからファイルをコピーする"""
         try:
-            ps_cmd = (
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                "$items = @(); "
-                "try { "
-                "  $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine','Default'); "
-                "  $amKey = $hive.OpenSubKey('SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppCompatFlags\\Amcache'); "
-                "  if ($amKey) { "
-                "    foreach ($sub in $amKey.GetSubKeyNames()) { "
-                "      $sk = $amKey.OpenSubKey($sub); "
-                "      if ($sk) { "
-                "        $p = $sk.GetValue(''); "
-                "        if ($p) { $items += $p } "
-                "      } "
-                "    } "
-                "  } "
-                "} catch {} "
-                "$items | ConvertTo-Json -Compress"
-            )
-            output = subprocess.check_output(
-                ['powershell', '-NoProfile', '-Command', ps_cmd],
-                text=True, encoding='utf-8', errors='replace',
-                timeout=30, creationflags=0x08000000,
-                stderr=subprocess.DEVNULL)
-            if output.strip():
-                try:
-                    data = json.loads(output)
-                    if isinstance(data, str):
-                        data = [data]
-                    for path in data:
-                        if path:
-                            result = self._analyze_exe_path(str(path), "Amcache (Fallback)", "")
-                            if len(result) == 5:
-                                status, reason, desc, sig_st, sig_name = result
-                            else:
-                                status, reason, desc = result; sig_st = ""; sig_name = ""
-                            if status != "SAFE":
-                                results.append({
-                                    "source": "Amcache",
-                                    "artifact": str(path),
-                                    "detail": "PowerShell fallback",
-                                    "time": "",
-                                    "status": status,
-                                    'sig_status': sig_st,
-                                    'sig_signer': sig_name,
-                                    "reason": reason,
-                                    "desc": desc,
-                                })
-                except json.JSONDecodeError:
-                    pass
+            r = subprocess.run(
+                ['vssadmin', 'list', 'shadows'],
+                capture_output=True, timeout=30, text=True,
+                creationflags=0x08000000)
+            shadow_path = None
+            for line in r.stdout.split('\n'):
+                if '\\\\?\\GLOBALROOT' in line:
+                    parts = line.split(':', 1)
+                    if len(parts) > 1:
+                        sp = parts[1].strip()
+                        if sp.startswith('\\\\'):
+                            shadow_path = sp
+            if not shadow_path:
+                return False
+            if not shadow_path.endswith('\\'):
+                shadow_path += '\\'
+            # src_pathからドライブレターを除去してVSSパスに変換
+            rel_path = src_path[3:] if len(src_path) > 3 and src_path[1] == ':' else src_path
+            vss_src = shadow_path + rel_path
+            r2 = subprocess.run(
+                ['cmd', '/c', 'copy', '/Y', vss_src, dest_path],
+                capture_output=True, timeout=30,
+                creationflags=0x08000000)
+            return os.path.exists(dest_path)
         except Exception:
-            pass
-        return results
+            return False
 
     # ==============================================================
     # 5. BAM/DAM (Background Activity Moderator) 解析
