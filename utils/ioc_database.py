@@ -275,6 +275,18 @@ def load_user_iocs():
 load_user_iocs()
 
 
+def should_read_file_for_sha256_ioc() -> bool:
+    """
+    内蔵/ユーザーに SHA256 IOC が1件でもあれば True。
+    1件も無い場合は Amcache 等で全ファイルを読む必要がない（スキャン停滞の主因を防ぐ）。
+    """
+    return bool(IOC_SHA256_DATABASE) or bool(USER_IOC_SHA256)
+
+
+# Amcache からの SHA256 計算: これを超えるファイルはスキップ（数 GB の読み込みでスキャンが事実上停止するのを防ぐ）
+AMCACHE_SHA256_MAX_BYTES = 64 * 1024 * 1024
+
+
 def compute_file_sha256(filepath: str, max_bytes: int | None = None) -> str:
     """ファイルの SHA256（大容量はチャンク読み）。"""
     h = hashlib.sha256()

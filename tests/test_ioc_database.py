@@ -62,3 +62,14 @@ def test_get_ioc_stats_keys():
     assert "builtin_sha1" in s
     assert "user_sha256" in s
     assert s["builtin_sha1"] >= 1
+
+
+def test_should_read_file_for_sha256_without_user_ioc(monkeypatch):
+    monkeypatch.setattr(ioc, "USER_IOC_SHA256", {})
+    monkeypatch.setattr(ioc, "IOC_SHA256_DATABASE", {})
+    assert ioc.should_read_file_for_sha256_ioc() is False
+
+
+def test_should_read_file_for_sha256_with_user_ioc(monkeypatch):
+    monkeypatch.setattr(ioc, "USER_IOC_SHA256", {"a" * 64: {"name": "x"}})
+    assert ioc.should_read_file_for_sha256_ioc() is True

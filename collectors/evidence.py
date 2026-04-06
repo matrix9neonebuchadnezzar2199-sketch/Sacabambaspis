@@ -28,11 +28,18 @@ except ImportError:
         return ''
 
 try:
-    from utils.ioc_database import check_sha1_ioc, check_sha256_ioc, compute_file_sha256
+    from utils.ioc_database import (
+        AMCACHE_SHA256_MAX_BYTES,
+        check_sha1_ioc,
+        check_sha256_ioc,
+        compute_file_sha256,
+        should_read_file_for_sha256_ioc,
+    )
 except ImportError:
     check_sha1_ioc = None
     check_sha256_ioc = None
     compute_file_sha256 = None
+    should_read_file_for_sha256_ioc = None
 
 
 class EvidenceCollector:
@@ -1096,14 +1103,23 @@ class EvidenceCollector:
                             extra += 'IOC一致(SHA1): ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')\\n'
                             extra += 'MITRE: ' + ioc_hit['mitre'] + ' | 深刻度: ' + ioc_hit['severity'] + '\\n'
 
-                    if not ioc_hit and compute_file_sha256 and check_sha256_ioc and os.path.isfile(lower_path):
+                    # SHA256 IOC が登録されている場合のみディスク読み（全エントリで全ファイル読みするとスキャンが事実上停止する）
+                    if (
+                        not ioc_hit
+                        and compute_file_sha256
+                        and check_sha256_ioc
+                        and should_read_file_for_sha256_ioc
+                        and should_read_file_for_sha256_ioc()
+                        and os.path.isfile(lower_path)
+                    ):
                         try:
-                            s256 = compute_file_sha256(lower_path)
-                            extra += 'SHA256: ' + s256 + '\\n'
-                            ioc_hit = check_sha256_ioc(s256)
-                            if ioc_hit:
-                                extra += 'IOC一致(SHA256): ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')\\n'
-                                extra += 'MITRE: ' + ioc_hit['mitre'] + ' | 深刻度: ' + ioc_hit['severity'] + '\\n'
+                            if os.path.getsize(lower_path) <= AMCACHE_SHA256_MAX_BYTES:
+                                s256 = compute_file_sha256(lower_path)
+                                extra += 'SHA256: ' + s256 + '\\n'
+                                ioc_hit = check_sha256_ioc(s256)
+                                if ioc_hit:
+                                    extra += 'IOC一致(SHA256): ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')\\n'
+                                    extra += 'MITRE: ' + ioc_hit['mitre'] + ' | 深刻度: ' + ioc_hit['severity'] + '\\n'
                         except Exception:
                             pass
 
