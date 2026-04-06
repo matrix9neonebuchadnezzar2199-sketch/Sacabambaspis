@@ -1,12 +1,21 @@
 ﻿# -*- coding: utf-8 -*-
 # utils/signature.py - P41: Authenticode署名検証モジュール
-import subprocess
-import os
 import logging
+import os
+import subprocess
+import threading
 
 logger = logging.getLogger(__name__)
 
 _cache = {}
+
+# evidence.scan Phase1: 逐次署名を避ける（モンキーパッチの代わり・他スレッドと競合しない）
+_tls = threading.local()
+
+
+def set_deferred_signature_verify(enabled: bool) -> None:
+    """True の間は verify_signature が PowerShell を呼ばず ('Deferred', '') を返す（キャッシュしない）。"""
+    _tls.skip_verify = bool(enabled)
 
 TRUSTED_SIGNERS = [
     'microsoft', 'mcafee', 'google', 'adobe', 'intel', 'nvidia',
@@ -30,6 +39,9 @@ HARDCORE_TOOLS = [
 
 def verify_signature(file_path):
     """Authenticode署名を検証し (status, signer) を返す"""
+    if getattr(_tls, "skip_verify", False):
+        return ("Deferred", "")
+
     if not file_path or not os.path.isfile(file_path):
         return ('NotFound', '')
 
@@ -38,15 +50,19 @@ def verify_signature(file_path):
         return _cache[normalized]
 
     try:
-        cmd = (
-            f'powershell -NoProfile -Command "'
-            f"$s = Get-AuthenticodeSignature '{file_path}';"
+        safe = file_path.replace("'", "''")
+        ps_command = (
+            f"$s = Get-AuthenticodeSignature '{safe}';"
             f"$s.Status.ToString() + '|' + "
             f"($s.SignerCertificate.Subject -replace ',',';')"
-            f'"'
         )
         r = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=5, shell=True, encoding='utf-8', errors='replace'
+            ["powershell", "-NoProfile", "-Command", ps_command],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            encoding="utf-8",
+            errors="replace",
         )
         out = r.stdout.strip()
         if '|' in out:

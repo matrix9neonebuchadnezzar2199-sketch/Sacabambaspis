@@ -320,7 +320,7 @@ def load_history(filename):
     return jsonify({"status": "error", "message": "File not found"})
 
 # 【追加】削除機能
-@app.route('/api/history/delete/<filename>')
+@app.route('/api/history/delete/<filename>', methods=['DELETE'])
 def delete_history(filename):
     fp = _safe_history_path(filename)
     if not fp:

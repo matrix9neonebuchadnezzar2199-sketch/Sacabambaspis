@@ -2228,7 +2228,7 @@ function loadReport(filename) {
 
 function deleteReport(filename) {
     if (!confirm('削除しますか？\n' + filename)) return;
-    fetch('/api/history/delete/' + filename).then(r => r.json()).then(res => {
+    fetch('/api/history/delete/' + encodeURIComponent(filename), { method: 'DELETE' }).then(r => r.json()).then(res => {
         if (res.status === 'ok') loadHistoryList();
         else alert('削除失敗: ' + res.message);
     });

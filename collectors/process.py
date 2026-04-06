@@ -116,7 +116,7 @@ class ProcessCollector:
                 ppid = p_info.get('ppid', 0)
                 parent_name = pid_name_map.get(ppid, "unknown")
                 # 信頼パスの正規プロセスは深い解析スキップ
-                _pp = (p_info.get('path') or '').lower()
+                _pp = (p_info.get('exe') or '').lower()
                 _trusted_proc = ['c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
                                   'c:\\program files\\', 'c:\\program files (x86)\\',
                                   'c:\\windows\\microsoft.net\\']

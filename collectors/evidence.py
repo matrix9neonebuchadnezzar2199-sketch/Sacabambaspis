@@ -12,11 +12,22 @@ from datetime import datetime
 from utils.tutor_template import build_tutor_desc
 
 try:
-    from utils.signature import verify_signature, is_trusted_signer, is_hardcore_tool, extract_signer_name, clear_cache, batch_verify_signatures
+    from utils.signature import (
+        batch_verify_signatures,
+        clear_cache,
+        extract_signer_name,
+        is_hardcore_tool,
+        is_trusted_signer,
+        set_deferred_signature_verify,
+        verify_signature,
+    )
 except ImportError:
     verify_signature = None
     clear_cache = None
     batch_verify_signatures = None
+
+    def set_deferred_signature_verify(_enabled=False):
+        pass
 
     def is_trusted_signer(_signer):
         return False
@@ -81,29 +92,22 @@ class EvidenceCollector:
             # Phase 2: 結果からユニークパスを収集しバッチ署名検証
             # Phase 3: 署名結果を反映
 
-            # まず署名検証を無効化して高速スキャン
-            import utils.signature as _sig_mod
-            _orig_verify = _sig_mod.verify_signature
-            _sig_mod.verify_signature = None
-            global verify_signature
-            _bk = verify_signature
-            verify_signature = None
-
-            evidence = []
-            self._emit_detail("UserAssist — レジストリ")
-            evidence.extend(self._scan_userassist())
-            self._emit_detail("Prefetch — フォルダ走査")
-            evidence.extend(self._scan_prefetch())
-            self._emit_detail("ShimCache — AppCompatCache")
-            evidence.extend(self._scan_shimcache())
-            self._emit_detail("Amcache — ハイブ解析")
-            evidence.extend(self._scan_amcache())
-            self._emit_detail("BAM/DAM — レジストリ")
-            evidence.extend(self._scan_bam())
-
-            # 署名検証を復元
-            _sig_mod.verify_signature = _orig_verify
-            verify_signature = _bk
+            # Phase1: 逐次 Authenticode 呼び出しを避ける（utils.signature の TLS フラグ）
+            set_deferred_signature_verify(True)
+            try:
+                evidence = []
+                self._emit_detail("UserAssist — レジストリ")
+                evidence.extend(self._scan_userassist())
+                self._emit_detail("Prefetch — フォルダ走査")
+                evidence.extend(self._scan_prefetch())
+                self._emit_detail("ShimCache — AppCompatCache")
+                evidence.extend(self._scan_shimcache())
+                self._emit_detail("Amcache — ハイブ解析")
+                evidence.extend(self._scan_amcache())
+                self._emit_detail("BAM/DAM — レジストリ")
+                evidence.extend(self._scan_bam())
+            finally:
+                set_deferred_signature_verify(False)
 
             # 信頼パスリスト
             _trusted_dirs = [
