@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """utils/ioc_database: 正規化・照合・取込の単体テスト"""
-import pytest
 
 import utils.ioc_database as ioc
 

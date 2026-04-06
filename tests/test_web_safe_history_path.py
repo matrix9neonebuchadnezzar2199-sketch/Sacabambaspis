@@ -2,8 +2,6 @@
 """web.app._safe_history_path: 履歴ファイルパス検証"""
 import os
 
-import pytest
-
 import web.app as app
 
 
