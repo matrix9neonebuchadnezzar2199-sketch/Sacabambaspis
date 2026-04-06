@@ -24,6 +24,8 @@ except ImportError:
     def build_tutor_desc(**kwargs):
         return kwargs.get('detection', '')
 
+from utils import threat_lists as _tl
+
 
 class SRUMCollector:
     """System Resource Usage Monitor の解析"""
@@ -41,14 +43,8 @@ class SRUMCollector:
     LARGE_DB_THRESHOLD_MB = 500  # DBサイズがこれ以上なら警告
     VERY_LARGE_DB_THRESHOLD_MB = 2000  # DBサイズがこれ以上なら危険
 
-    # ERR-SRUM-004: 攻撃ツールパターン
-    ATTACK_TOOLS = [
-        'mimikatz', 'psexec', 'cobalt', 'beacon', 'rubeus',
-        'sharphound', 'bloodhound', 'lazagne', 'procdump',
-        'chisel', 'ligolo', 'sliver', 'nmap', 'masscan',
-        'nc.exe', 'ncat', 'netcat', 'crackmapexec',
-        'evil-winrm', 'certutil', 'bitsadmin',
-    ]
+    # ERR-SRUM-004: 攻撃ツールパターン（threat_lists 一元管理）
+    ATTACK_TOOLS = _tl.ATTACK_TOOLS
 
     def __init__(self):
         pass

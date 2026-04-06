@@ -16,13 +16,20 @@ class MemoryCollector:
         # 完全スキップ対象（大量のマッピングを持つがフォレンジック価値が低い）
         self.skip_procs = ['registry', 'memory compression']
 
-    def scan(self):
+    def scan(self, on_detail=None):
         results = []
+        _mem_n = 0
 
         for proc in psutil.process_iter(['pid', 'name', 'username']):
             try:
                 proc_name = proc.info['name'] or 'Unknown'
                 proc_pid = proc.info['pid']
+                _mem_n += 1
+                if on_detail and _mem_n % 14 == 1:
+                    try:
+                        on_detail(f"メモリ · {proc_name} (PID {proc_pid})")
+                    except Exception:
+                        pass
 
                 # ERR-MEM-001: スキップ対象プロセス
                 if proc_name.lower() in self.skip_procs:

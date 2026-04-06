@@ -12,6 +12,8 @@ except ImportError:
         return kwargs.get('detection', '')
 
 
+from utils import threat_lists as _tl
+
 try:
     from collectors.pe_sieve import is_available as pesieve_available, scan_process as pesieve_scan
 except ImportError:
@@ -38,12 +40,7 @@ class ProcessCollector:
             "fontdrvhost.exe":  ["wininit.exe", "winlogon.exe"],
         }
 
-        self.suspicious_parent_names = [
-            "winword.exe", "excel.exe", "powerpnt.exe",
-            "powershell.exe", "cmd.exe", "wscript.exe",
-            "mshta.exe", "regsvr32.exe", "rundll32.exe",
-            "cscript.exe", "certutil.exe",
-        ]
+        self.suspicious_parent_names = list(_tl.SUSPICIOUS_PARENT_PROCESS_NAMES)
 
         self.system_process_valid_paths = {
             "svchost.exe":   [r"c:\windows\system32"],
@@ -59,12 +56,7 @@ class ProcessCollector:
             "lsm.exe":       [r"c:\windows\system32"],
         }
 
-        self.suspicious_paths = [
-            'users\\public', '\\appdata\\local\\temp',
-            '\\appdata\\roaming', '\\programdata',
-            '\\downloads', '\\music', '\\videos',
-            '\\pictures', 'recycle.bin', '\\perflogs',
-        ]
+        self.suspicious_paths = list(_tl.PROCESS_SUSPICIOUS_PATH_SUBSTRINGS)
 
         self.known_system_names = [
             "svchost.exe", "csrss.exe", "lsass.exe", "services.exe",

@@ -4,6 +4,7 @@ import os
 import xml.etree.ElementTree as ET
 import subprocess
 from utils.tutor_template import build_tutor_desc
+from utils import threat_lists as _tl
 
 
 class PersistenceCollector:
@@ -12,35 +13,10 @@ class PersistenceCollector:
     def __init__(self):
         self.tasks_dir = r"C:\Windows\System32\Tasks"
 
-        self.attack_tools = [
-            'mimikatz', 'psexec', 'cobalt', 'beacon', 'rubeus',
-            'sharphound', 'bloodhound', 'lazagne', 'sliver',
-            'covenant', 'chisel', 'ligolo', 'ngrok', 'netcat',
-            'nc.exe', 'nmap', 'rclone', 'megasync',
-        ]
-
-        self.lolbins = [
-            'powershell', 'pwsh', 'cmd.exe', 'wscript', 'cscript',
-            'mshta', 'rundll32', 'regsvr32', 'certutil',
-            'bitsadmin', 'msiexec', 'bash', 'curl', 'wget',
-            'installutil', 'regasm', 'msbuild', 'cmstp',
-        ]
-
-        self.suspicious_paths = [
-            '\\temp\\', '\\tmp\\', '\\appdata\\local\\temp\\',
-            '\\users\\public\\', '\\downloads\\',
-            '\\perflogs\\', '\\programdata\\',
-            '\\recycler\\', '\\$recycle.bin\\',
-        ]
-
-        self.suspicious_args = [
-            '-enc ', '-encodedcommand', '-nop', '-noprofile',
-            '-windowstyle hidden', '-w hidden', '-ep bypass',
-            '-executionpolicy bypass', 'base64', 'invoke-expression',
-            'iex ', 'downloadstring', 'downloadfile', 'net.webclient',
-            'start-process', 'new-object', 'io.memorystream',
-            'frombase64string', 'http://', 'https://',
-        ]
+        self.attack_tools = list(_tl.ATTACK_TOOLS)
+        self.lolbins = list(_tl.LOLBINS)
+        self.suspicious_paths = list(_tl.SUSPICIOUS_PATH_FRAGMENTS)
+        self.suspicious_args = list(_tl.SUSPICIOUS_ARGS)
 
     def scan(self):
         results = []

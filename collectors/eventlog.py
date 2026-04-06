@@ -12,6 +12,12 @@ except ImportError:
         return kwargs.get('detection', '')
 
 
+from utils.scan_config import (
+    get_eventlog_hours_window,
+    get_eventlog_max_events,
+    get_eventlog_sysmon_max_events,
+)
+
 try:
     from collectors.sigma_engine import match_event_summary, build_sigma_tutor, SIGMA_AVAILABLE
 except ImportError:
@@ -25,6 +31,81 @@ except ImportError:
 
         def build_sigma_tutor(_info):
             return None
+
+
+def _build_sysmon_target_events():
+    """Sysmon 導入環境向け（ログが無い場合は _get_events が空を返す）"""
+    return {
+        "1": {
+            "level": "INFO",
+            "desc": "🔎 Sysmon プロセス作成",
+            "tutor": build_tutor_desc(
+                detection="Sysmon Event ID 1: プロセス作成が記録されました。",
+                why_dangerous=(
+                    "コマンドライン・親子関係が含まれるため、不正実行の調査に有用です。"
+                ),
+                mitre_key="sysmon_process_create",
+                normal_vs_abnormal="Sysmon 導入時は 4688 より詳細なことが多いです。",
+                next_steps=["Image / CommandLine / ParentImage を確認する"],
+                status="INFO",
+            ),
+        },
+        "3": {
+            "level": "INFO",
+            "desc": "🌐 Sysmon ネットワーク接続",
+            "tutor": build_tutor_desc(
+                detection="Sysmon Event ID 3: ネットワーク接続が記録されました。",
+                why_dangerous="プロセスと宛先 IP/ポートの対応が取れます。",
+                mitre_key="sysmon_network",
+                next_steps=["Image と DestinationIp を確認する"],
+                status="INFO",
+            ),
+        },
+        "7": {
+            "level": "INFO",
+            "desc": "📎 Sysmon イメージ読込",
+            "tutor": build_tutor_desc(
+                detection="Sysmon Event ID 7: DLL イメージの読み込みが記録されました。",
+                why_dangerous="不正 DLL の sideload / インジェクション調査に使います。",
+                mitre_key="sysmon_image_load",
+                status="INFO",
+            ),
+        },
+        "8": {
+            "level": "WARNING",
+            "desc": "⚠️ Sysmon CreateRemoteThread",
+            "tutor": build_tutor_desc(
+                detection="Sysmon Event ID 8: CreateRemoteThread が記録されました。",
+                why_dangerous="プロセスインジェクションの典型的な痕跡です。",
+                mitre_key="sysmon_remote_thread",
+                status="WARNING",
+            ),
+        },
+        "11": {
+            "level": "INFO",
+            "desc": "📁 Sysmon ファイル作成",
+            "tutor": build_tutor_desc(
+                detection="Sysmon Event ID 11: ファイル作成が記録されました。",
+                why_dangerous="ドロップされたマルウェアやスクリプトの追跡に使います。",
+                mitre_key="sysmon_file_create",
+                status="INFO",
+            ),
+        },
+        "22": {
+            "level": "INFO",
+            "desc": "🔤 Sysmon DNS クエリ",
+            "tutor": build_tutor_desc(
+                detection="Sysmon Event ID 22: DNS クエリが記録されました。",
+                why_dangerous="C2 ドメインや DGA の手がかりになります。",
+                mitre_key="sysmon_dns",
+                status="INFO",
+            ),
+        },
+    }
+
+
+SYSMON_TARGET_EVENTS = _build_sysmon_target_events()
+
 
 class EventLogCollector:
     """P17: イベントログ解析 - 全イベントIDに3段構成Tutor解説を付与"""
@@ -446,6 +527,11 @@ class EventLogCollector:
 
         }
 
+        self.target_events.update(SYSMON_TARGET_EVENTS)
+        for _ek, _ev in list(self.target_events.items()):
+            if isinstance(_ek, int) and isinstance(_ev, dict) and "level" in _ev:
+                self.target_events[str(_ek)] = _ev
+
         # ERR-EVL-002: メッセージ内容から追加リスクを判定するキーワード
 
         self.danger_keywords_in_message = [
@@ -487,45 +573,74 @@ class EventLogCollector:
         '1116': 'evt_malware_detect',
         '1117': 'evt_malware_detect',
         '11724': 'evt_app_uninstall',
+        '1': 'sysmon_process_create',
+        '3': 'sysmon_network',
+        '7': 'sysmon_image_load',
+        '8': 'sysmon_remote_thread',
+        '11': 'sysmon_file_create',
+        '22': 'sysmon_dns',
     }
 
     def scan(self):
         logs = []
+        self._eventlog_hours = get_eventlog_hours_window()
+        emax = get_eventlog_max_events()
+        esys = get_eventlog_sysmon_max_events()
         try:
-            logs.extend(self._get_events('Security', [1102, 4624, 4625, 4672, 4688, 4698, 4720, 4732, 4697], 50))
+            logs.extend(self._get_events('Security', [1102, 4624, 4625, 4672, 4688, 4698, 4720, 4732, 4697], emax))
         except Exception:
             print("[!] Securityログの取得に失敗 (スキップ)")
 
         try:
-            logs.extend(self._get_events('System', [6005, 6006, 41, 7045], 50))
+            logs.extend(self._get_events('System', [6005, 6006, 41, 7045], emax))
         except Exception:
             print("[!] Systemログの取得に失敗 (スキップ)")
 
         try:
-            logs.extend(self._get_events('Application', [1000, 11707, 11724], 50))
+            logs.extend(self._get_events('Application', [1000, 11707, 11724], emax))
         except Exception:
             print("[!] Applicationログの取得に失敗 (スキップ)")
 
         try:
-            logs.extend(self._get_events('Microsoft-Windows-PowerShell/Operational', [4104], 50))
+            logs.extend(self._get_events('Microsoft-Windows-PowerShell/Operational', [4104], emax))
         except Exception:
             print("[!] PowerShellログの取得に失敗 (スキップ)")
 
         # Defender Operational
         try:
-            logs.extend(self._get_events('Microsoft-Windows-Windows Defender/Operational', [1116, 1117], 50))
+            logs.extend(self._get_events('Microsoft-Windows-Windows Defender/Operational', [1116, 1117], emax))
         except Exception:
             print("[!] Defenderログの取得に失敗 (スキップ)")
+
+        try:
+            logs.extend(
+                self._get_events(
+                    "Microsoft-Windows-Sysmon/Operational",
+                    [1, 3, 7, 8, 11, 22],
+                    esys,
+                )
+            )
+        except Exception:
+            print("[!] Sysmonログの取得に失敗 (スキップ)")
 
         return sorted(logs, key=lambda x: x['time'], reverse=True)
 
     def _get_events(self, log_name, ids, max_events):
         results = []
-        id_list = ','.join(map(str, ids))
+        log_safe = (log_name or "").replace("'", "''")
+        id_ps = ",".join(map(str, ids))
+        hours = getattr(self, "_eventlog_hours", None)
+        if hours is not None:
+            start_line = f"$filter['StartTime'] = (Get-Date).AddHours(-{float(hours)}); "
+        else:
+            start_line = ""
 
         ps_command = f"""
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-        Get-WinEvent -FilterHashtable @{{LogName='{log_name}'; Id={id_list}}} -MaxEvents {max_events} -ErrorAction SilentlyContinue |
+        $ids = @({id_ps});
+        $filter = @{{ LogName='{log_safe}'; Id=$ids }};
+        {start_line}
+        Get-WinEvent -FilterHashtable $filter -MaxEvents {max_events} -ErrorAction SilentlyContinue |
         Select-Object Id, TimeCreated, @{{Name='Msg';Expression={{$_.Message -replace '\\r?\\n',' ' | ForEach-Object {{ $_.Substring(0, [Math]::Min($_.Length, 500)) }}}}}} |
         ConvertTo-Json -Compress
         """

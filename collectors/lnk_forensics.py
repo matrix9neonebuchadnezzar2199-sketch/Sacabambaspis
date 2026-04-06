@@ -17,6 +17,32 @@ class LnkForensicsCollector:
             r'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\*.lnk',
             os.path.expandvars(r'%USERPROFILE%\Desktop\*.lnk'),
         ]
+        users_root = os.path.join(os.environ.get('SystemDrive', 'C:') + os.sep, 'Users')
+        if os.path.isdir(users_root):
+            skip = {'public', 'default', 'default user', 'all users', 'desktop.ini'}
+            for entry in os.listdir(users_root):
+                if entry.lower() in skip or not entry:
+                    continue
+                home = os.path.join(users_root, entry)
+                if not os.path.isdir(home):
+                    continue
+                self.target_globs.append(
+                    os.path.join(home, 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Recent', '*.lnk')
+                )
+                self.target_globs.append(
+                    os.path.join(
+                        home,
+                        'AppData',
+                        'Roaming',
+                        'Microsoft',
+                        'Windows',
+                        'Start Menu',
+                        'Programs',
+                        'Startup',
+                        '*.lnk',
+                    )
+                )
+                self.target_globs.append(os.path.join(home, 'Desktop', '*.lnk'))
 
         # 不審引数パターン (Velociraptor SusArgRegex移植)
         self.sus_arg_re = re.compile(

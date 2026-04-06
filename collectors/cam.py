@@ -17,22 +17,14 @@ except ImportError:
     def build_tutor_desc(**kwargs):
         return kwargs.get('detection', '')
 
+from utils import threat_lists as _tl
+
 
 class CAMCollector:
     """PcaGeneralDb0.db / PcaGeneralDb1.db からプログラム実行履歴を取得"""
 
-    # ERR-CAM-001: 攻撃ツール名リスト
-    ATTACK_TOOLS = [
-        'mimikatz', 'psexec', 'psexesvc', 'cobalt', 'beacon',
-        'rubeus', 'seatbelt', 'sharphound', 'bloodhound',
-        'lazagne', 'procdump', 'nanodump', 'pypykatz',
-        'impacket', 'crackmapexec', 'evil-winrm', 'chisel',
-        'ligolo', 'sliver', 'havoc', 'brute', 'hydra',
-        'nmap', 'masscan', 'whoami', 'net.exe',
-        'wce', 'gsecdump', 'pwdump', 'fgdump',
-        'nc.exe', 'ncat', 'netcat', 'socat',
-        'certutil', 'bitsadmin',
-    ]
+    # ERR-CAM-001: 攻撃ツール名リスト（threat_lists 一元管理）
+    ATTACK_TOOLS = _tl.ATTACK_TOOLS
 
     # ERR-CAM-002: 不審な実行パスパターン
     SUSPICIOUS_PATHS = [

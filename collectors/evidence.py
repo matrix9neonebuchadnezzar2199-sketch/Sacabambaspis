@@ -27,6 +27,8 @@ except ImportError:
     def extract_signer_name(_signer):
         return ''
 
+from utils import threat_lists as _tl
+
 try:
     from utils.ioc_database import (
         AMCACHE_SHA256_MAX_BYTES,
@@ -52,249 +54,239 @@ class EvidenceCollector:
     """
 
     def __init__(self):
-        self.attack_tools = [
-            'mimikatz', 'psexec', 'paexec', 'cobalt', 'beacon',
-            'rubeus', 'seatbelt', 'sharphound', 'bloodhound',
-            'lazagne', 'procdump', 'nanodump', 'safetykatz',
-            'sharpwmi', 'covenant', 'sliver', 'brute', 'crack',
-            'hashcat', 'john', 'hydra', 'nmap', 'masscan',
-            'chisel', 'ligolo', 'ngrok', 'frp', 'netcat', 'nc.exe',
-            'plink', 'socat', 'rclone', 'megasync',
-            'advanced_ip_scanner', 'angry_ip', 'nbtscan',
-            'empire', 'meterpreter', 'havoc', 'bruteratel',
-        ]
+        self.attack_tools = list(_tl.ATTACK_TOOLS)
+        self.lolbins = list(_tl.LOLBINS)
+        self.recon_tools = list(_tl.RECON_TOOLS)
+        self.suspicious_paths = list(_tl.SUSPICIOUS_PATH_FRAGMENTS)
 
-        self.lolbins = [
-            'powershell', 'pwsh', 'cmd.exe', 'wscript', 'cscript',
-            'mshta', 'rundll32', 'regsvr32', 'certutil',
-            'bitsadmin', 'msiexec', 'wmic', 'msconfig',
-            'installutil', 'regasm', 'regsvcs', 'msbuild',
-            'cmstp', 'esentutl', 'expand', 'extrac32',
-            'makecab', 'replace', 'xwizard', 'msdt',
-        ]
-
-        self.recon_tools = [
-            'whoami', 'systeminfo', 'ipconfig', 'net.exe', 'net1.exe',
-            'nltest', 'dsquery', 'csvde', 'ldifde',
-            'quser', 'qwinsta', 'query', 'klist',
-            'tasklist', 'taskkill', 'sc.exe', 'schtasks',
-            'reg.exe', 'arp.exe', 'route', 'tracert',
-            'netstat', 'nslookup', 'ping.exe',
-        ]
-
-        self.suspicious_paths = [
-            '\\temp\\', '\\tmp\\', '\\appdata\\local\\temp\\',
-            '\\users\\public\\', '\\downloads\\',
-            '\\perflogs\\', '\\programdata\\',
-            '\\recycler\\', '\\$recycle.bin\\',
-            '\\windows\\debug\\', '\\windows\\temp\\',
-        ]
+    def _emit_detail(self, text):
+        cb = getattr(self, '_on_detail', None)
+        if not cb or not text:
+            return
+        try:
+            cb(str(text)[:420])
+        except Exception:
+            pass
 
     # ==============================================================
     # メインスキャン
     # ==============================================================
-    def scan(self):
-        if clear_cache:
-            clear_cache()  # 署名キャッシュリセット
+    def scan(self, on_detail=None):
+        self._on_detail = on_detail
+        try:
+            if clear_cache:
+                clear_cache()  # 署名キャッシュリセット
 
-        # Phase 1: 全サブスキャンを実行（署名検証なし）
-        # Phase 2: 結果からユニークパスを収集しバッチ署名検証
-        # Phase 3: 署名結果を反映
+            # Phase 1: 全サブスキャンを実行（署名検証なし）
+            # Phase 2: 結果からユニークパスを収集しバッチ署名検証
+            # Phase 3: 署名結果を反映
 
-        # まず署名検証を無効化して高速スキャン
-        import utils.signature as _sig_mod
-        _orig_verify = _sig_mod.verify_signature
-        _sig_mod.verify_signature = None
-        global verify_signature
-        _bk = verify_signature
-        verify_signature = None
+            # まず署名検証を無効化して高速スキャン
+            import utils.signature as _sig_mod
+            _orig_verify = _sig_mod.verify_signature
+            _sig_mod.verify_signature = None
+            global verify_signature
+            _bk = verify_signature
+            verify_signature = None
 
-        evidence = []
-        evidence.extend(self._scan_userassist())
-        evidence.extend(self._scan_prefetch())
-        evidence.extend(self._scan_shimcache())
-        evidence.extend(self._scan_amcache())
-        evidence.extend(self._scan_bam())
+            evidence = []
+            self._emit_detail("UserAssist — レジストリ")
+            evidence.extend(self._scan_userassist())
+            self._emit_detail("Prefetch — フォルダ走査")
+            evidence.extend(self._scan_prefetch())
+            self._emit_detail("ShimCache — AppCompatCache")
+            evidence.extend(self._scan_shimcache())
+            self._emit_detail("Amcache — ハイブ解析")
+            evidence.extend(self._scan_amcache())
+            self._emit_detail("BAM/DAM — レジストリ")
+            evidence.extend(self._scan_bam())
 
-        # 署名検証を復元
-        _sig_mod.verify_signature = _orig_verify
-        verify_signature = _bk
+            # 署名検証を復元
+            _sig_mod.verify_signature = _orig_verify
+            verify_signature = _bk
 
-        # 信頼パスリスト
-        _trusted_dirs = [
-            'c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
-            'c:\\program files\\', 'c:\\program files (x86)\\',
-            'c:\\windows\\winsxs\\', 'c:\\windows\\microsoft.net\\',
-            'c:\\windows\\servicing\\', 'c:\\windows\\immersivecontrolpanel\\',
-            'c:\\windows\\systemapps\\',
-            'c:\\windows\\uus\\',
-            'c:\\windows\\temp\\',
-            'c:\\windows\\installer\\',
-            'c:\\windows\\softwaredistribution\\',
-        ]
+            # 信頼パスリスト
+            _trusted_dirs = [
+                'c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
+                'c:\\program files\\', 'c:\\program files (x86)\\',
+                'c:\\windows\\winsxs\\', 'c:\\windows\\microsoft.net\\',
+                'c:\\windows\\servicing\\', 'c:\\windows\\immersivecontrolpanel\\',
+                'c:\\windows\\systemapps\\',
+                'c:\\windows\\uus\\',
+                'c:\\windows\\temp\\',
+                'c:\\windows\\installer\\',
+                'c:\\windows\\softwaredistribution\\',
+            ]
 
-        # 既知アプリパターン（署名検証スキップ対象）
-        _known_apps = {
-            'chrome': 'Google Chrome',
-            'msedge': 'Microsoft Edge',
-            'firefox': 'Mozilla Firefox',
-            'code': 'Visual Studio Code',
-            'discord': 'Discord',
-            'slack': 'Slack',
-            'teams': 'Microsoft Teams',
-            'spotify': 'Spotify',
-            'steam': 'Steam',
-            'onedrive': 'Microsoft OneDrive',
-            'dropbox': 'Dropbox',
-            'zoom': 'Zoom',
-            'git': 'Git',
-            'node': 'Node.js',
-            'python': 'Python',
-            'java': 'Java',
-            'notepad++': 'Notepad++',
-            'vlc': 'VLC Media Player',
-            '7z': '7-Zip',
-            'winrar': 'WinRAR',
-            'docker': 'Docker',
-            'vmware': 'VMware',
-            'virtualbox': 'VirtualBox',
-            'obs': 'OBS Studio',
-            'gimp': 'GIMP',
-            'audacity': 'Audacity',
-            'vscode': 'VS Code',
-            'powershell': 'PowerShell',
-            'windowsterminal': 'Windows Terminal',
-            'explorer': 'Windows Explorer',
-            'svchost': 'Windows Service Host',
-            'taskhostw': 'Windows Task Host',
-            'runtimebroker': 'Runtime Broker',
-            'searchhost': 'Windows Search',
-            'startmenuexperiencehost': 'Start Menu',
-            'shellexperiencehost': 'Shell Experience',
-            'applicationframehost': 'App Frame Host',
-            'systemsettings': 'System Settings',
-            'securityhealthsystray': 'Windows Security',
-            'widgets': 'Windows Widgets',
-            'phoneexperiencehost': 'Phone Link',
-            'gamebar': 'Xbox Game Bar',
-            'msteams': 'Microsoft Teams',
-        }
+            # 既知アプリパターン（署名検証スキップ対象）
+            _known_apps = {
+                'chrome': 'Google Chrome',
+                'msedge': 'Microsoft Edge',
+                'firefox': 'Mozilla Firefox',
+                'code': 'Visual Studio Code',
+                'discord': 'Discord',
+                'slack': 'Slack',
+                'teams': 'Microsoft Teams',
+                'spotify': 'Spotify',
+                'steam': 'Steam',
+                'onedrive': 'Microsoft OneDrive',
+                'dropbox': 'Dropbox',
+                'zoom': 'Zoom',
+                'git': 'Git',
+                'node': 'Node.js',
+                'python': 'Python',
+                'java': 'Java',
+                'notepad++': 'Notepad++',
+                'vlc': 'VLC Media Player',
+                '7z': '7-Zip',
+                'winrar': 'WinRAR',
+                'docker': 'Docker',
+                'vmware': 'VMware',
+                'virtualbox': 'VirtualBox',
+                'obs': 'OBS Studio',
+                'gimp': 'GIMP',
+                'audacity': 'Audacity',
+                'vscode': 'VS Code',
+                'powershell': 'PowerShell',
+                'windowsterminal': 'Windows Terminal',
+                'explorer': 'Windows Explorer',
+                'svchost': 'Windows Service Host',
+                'taskhostw': 'Windows Task Host',
+                'runtimebroker': 'Runtime Broker',
+                'searchhost': 'Windows Search',
+                'startmenuexperiencehost': 'Start Menu',
+                'shellexperiencehost': 'Shell Experience',
+                'applicationframehost': 'App Frame Host',
+                'systemsettings': 'System Settings',
+                'securityhealthsystray': 'Windows Security',
+                'widgets': 'Windows Widgets',
+                'phoneexperiencehost': 'Phone Link',
+                'gamebar': 'Xbox Game Bar',
+                'msteams': 'Microsoft Teams',
+            }
 
-        _known_app_paths = [
-            ('\\appdata\\local\\google\\chrome\\', 'Google Chrome'),
-            ('\\appdata\\local\\microsoft\\edge\\', 'Microsoft Edge'),
-            ('\\appdata\\local\\discord\\', 'Discord'),
-            ('\\appdata\\local\\slack\\', 'Slack'),
-            ('\\appdata\\local\\programs\\microsoft vs code\\', 'VS Code'),
-            ('\\appdata\\local\\programs\\python\\', 'Python'),
-            ('\\appdata\\local\\gitkraken\\', 'GitKraken'),
-            ('\\appdata\\local\\spotify\\', 'Spotify'),
-            ('\\appdata\\local\\zoom\\', 'Zoom'),
-            ('\\appdata\\local\\teams\\', 'Microsoft Teams'),
-            ('\\appdata\\local\\docker\\', 'Docker'),
-            ('\\appdata\\local\\packages\\', 'Windows Store App'),
-            ('\\steam\\', 'Steam'),
-            ('\\windowsapps\\', 'Windows Store App'),
-            ('\\appdata\\local\\docker\\', 'Docker'),
-            ('\\appdata\\local\\temp\\dockerdesktop', 'Docker Desktop'),
-            ('\\.docker\\', 'Docker'),
-            ('\\appdata\\local\\gitkraken\\', 'GitKraken'),
-            ('\\appdata\\local\\postman\\', 'Postman'),
-            ('\\appdata\\local\\obsidian\\', 'Obsidian'),
-            ('\\appdata\\local\\notion\\', 'Notion'),
-            ('\\appdata\\roaming\\zoom\\', 'Zoom'),
-            ('\\tool\\', 'User Tools'),
-        ]
+            _known_app_paths = [
+                ('\\appdata\\local\\google\\chrome\\', 'Google Chrome'),
+                ('\\appdata\\local\\microsoft\\edge\\', 'Microsoft Edge'),
+                ('\\appdata\\local\\discord\\', 'Discord'),
+                ('\\appdata\\local\\slack\\', 'Slack'),
+                ('\\appdata\\local\\programs\\microsoft vs code\\', 'VS Code'),
+                ('\\appdata\\local\\programs\\python\\', 'Python'),
+                ('\\appdata\\local\\gitkraken\\', 'GitKraken'),
+                ('\\appdata\\local\\spotify\\', 'Spotify'),
+                ('\\appdata\\local\\zoom\\', 'Zoom'),
+                ('\\appdata\\local\\teams\\', 'Microsoft Teams'),
+                ('\\appdata\\local\\docker\\', 'Docker'),
+                ('\\appdata\\local\\packages\\', 'Windows Store App'),
+                ('\\steam\\', 'Steam'),
+                ('\\windowsapps\\', 'Windows Store App'),
+                ('\\appdata\\local\\docker\\', 'Docker'),
+                ('\\appdata\\local\\temp\\dockerdesktop', 'Docker Desktop'),
+                ('\\.docker\\', 'Docker'),
+                ('\\appdata\\local\\gitkraken\\', 'GitKraken'),
+                ('\\appdata\\local\\postman\\', 'Postman'),
+                ('\\appdata\\local\\obsidian\\', 'Obsidian'),
+                ('\\appdata\\local\\notion\\', 'Notion'),
+                ('\\appdata\\roaming\\zoom\\', 'Zoom'),
+                ('\\tool\\', 'User Tools'),
+            ]
 
-        # ユニークパスを収集（信頼パスは署名検証スキップ）
-        untrusted_paths = set()
-        trusted_path_set = set()
-        for item in evidence:
-            art = item.get('artifact', '')
-            if not art:
-                continue
-            art_lower = art.lower()
-            if any(art_lower.startswith(d) for d in _trusted_dirs):
-                trusted_path_set.add(art)
-            else:
-                # 既知アプリパスチェック
-                _matched_app = None
-                for _pat, _app_name in _known_app_paths:
-                    if _pat in art_lower:
-                        _matched_app = _app_name
-                        break
-                if not _matched_app:
-                    _bn = os.path.basename(art_lower).replace('.exe', '')
-                    _matched_app = _known_apps.get(_bn)
-
-                if _matched_app:
-                    trusted_path_set.add(art)  # 既知アプリも信頼扱い
-                elif art.startswith('\\\\'):
-                    trusted_path_set.add(art)  # UNCパスは署名検証スキップ
-                elif not art_lower.endswith('.exe'):
-                    trusted_path_set.add(art)  # 非EXEは署名検証不要
+            # ユニークパスを収集（信頼パスは署名検証スキップ）
+            untrusted_paths = set()
+            trusted_path_set = set()
+            for item in evidence:
+                art = item.get('artifact', '')
+                if not art:
+                    continue
+                art_lower = art.lower()
+                if any(art_lower.startswith(d) for d in _trusted_dirs):
+                    trusted_path_set.add(art)
                 else:
-                    if item.get('source') != 'Amcache' and os.path.isfile(art):
-                        untrusted_paths.add(art)
+                    # 既知アプリパスチェック
+                    _matched_app = None
+                    for _pat, _app_name in _known_app_paths:
+                        if _pat in art_lower:
+                            _matched_app = _app_name
+                            break
+                    if not _matched_app:
+                        _bn = os.path.basename(art_lower).replace('.exe', '')
+                        _matched_app = _known_apps.get(_bn)
 
-        # バッチ署名検証（不審パスのみ）
-        if batch_verify_signatures and untrusted_paths:
-            batch_verify_signatures(list(untrusted_paths))
+                    if _matched_app:
+                        trusted_path_set.add(art)  # 既知アプリも信頼扱い
+                    elif art.startswith('\\\\'):
+                        trusted_path_set.add(art)  # UNCパスは署名検証スキップ
+                    elif not art_lower.endswith('.exe'):
+                        trusted_path_set.add(art)  # 非EXEは署名検証不要
+                    else:
+                        if item.get('source') != 'Amcache' and os.path.isfile(art):
+                            untrusted_paths.add(art)
 
-        # 署名結果を各アイテムに反映
-        for item in evidence:
-            art = item.get('artifact', '')
-            if not art:
-                continue
-            art_lower = art.lower()
+            # バッチ署名検証（不審パスのみ）
+            if batch_verify_signatures and untrusted_paths:
+                self._emit_detail(f"署名バッチ · {len(untrusted_paths)} ファイル")
+                batch_verify_signatures(list(untrusted_paths))
 
-            # 信頼パス or 既知アプリ → 署名検証不要
-            _is_unc = art.startswith('\\\\')
-            _is_non_exe = not art_lower.endswith('.exe')
-            _is_trusted_dir = _is_unc or _is_non_exe or any(art_lower.startswith(d) for d in _trusted_dirs)
-            _matched_known = None
-            if not _is_trusted_dir:
-                for _pat, _app_name in _known_app_paths:
-                    if _pat in art_lower:
-                        _matched_known = _app_name
-                        break
-                if not _matched_known:
-                    _bn = os.path.basename(art_lower).replace('.exe', '')
-                    _matched_known = _known_apps.get(_bn)
+            # 署名結果を各アイテムに反映
+            _ev_sig_i = 0
+            for item in evidence:
+                _ev_sig_i += 1
+                art = item.get('artifact', '')
+                if _ev_sig_i % 40 == 1 and art:
+                    self._emit_detail(f"署名反映 · {art[:220]}")
+                if not art:
+                    continue
+                art_lower = art.lower()
 
-            if _is_trusted_dir or _matched_known:
-                _skip_reason = _matched_known or '信頼パス'
-                item['sig_status'] = 'TrustedPath'
-                item['sig_signer'] = _skip_reason
-                if _is_unc:
-                    item['trust_detail'] = f'UNCネットワークパス | {art}'
-                elif _is_non_exe:
-                    item['trust_detail'] = f'非EXEファイル | {art}'
-                elif _matched_known:
-                    item['trust_detail'] = f'既知アプリ: {_matched_known} | {art}'
-                else:
-                    item['trust_detail'] = f'信頼ディレクトリ | {art}'
-                basename = os.path.basename(art_lower).replace('.exe', '')
-                if not is_hardcore_tool(basename) and item.get('status') in ('WARNING', 'INFO'):
-                    item['status'] = 'SAFE'
-                    item['reason'] = f'信頼リスト除外: {_skip_reason} | {art}'
-                continue
+                # 信頼パス or 既知アプリ → 署名検証不要
+                _is_unc = art.startswith('\\\\')
+                _is_non_exe = not art_lower.endswith('.exe')
+                _is_trusted_dir = _is_unc or _is_non_exe or any(art_lower.startswith(d) for d in _trusted_dirs)
+                _matched_known = None
+                if not _is_trusted_dir:
+                    for _pat, _app_name in _known_app_paths:
+                        if _pat in art_lower:
+                            _matched_known = _app_name
+                            break
+                    if not _matched_known:
+                        _bn = os.path.basename(art_lower).replace('.exe', '')
+                        _matched_known = _known_apps.get(_bn)
 
-            # 不審パス → 署名検証結果を反映
-            if verify_signature:
-                sig_status, sig_signer = verify_signature(art)
-                sig_org = extract_signer_name(sig_signer)
-                sig_trusted = (sig_status == 'Valid' and is_trusted_signer(sig_signer))
-                item['sig_status'] = sig_status
-                item['sig_signer'] = sig_org
-
-                if sig_trusted and item.get('status') in ('WARNING', 'INFO'):
+                if _is_trusted_dir or _matched_known:
+                    _skip_reason = _matched_known or '信頼パス'
+                    item['sig_status'] = 'TrustedPath'
+                    item['sig_signer'] = _skip_reason
+                    if _is_unc:
+                        item['trust_detail'] = f'UNCネットワークパス | {art}'
+                    elif _is_non_exe:
+                        item['trust_detail'] = f'非EXEファイル | {art}'
+                    elif _matched_known:
+                        item['trust_detail'] = f'既知アプリ: {_matched_known} | {art}'
+                    else:
+                        item['trust_detail'] = f'信頼ディレクトリ | {art}'
                     basename = os.path.basename(art_lower).replace('.exe', '')
-                    if not is_hardcore_tool(basename):
+                    if not is_hardcore_tool(basename) and item.get('status') in ('WARNING', 'INFO'):
                         item['status'] = 'SAFE'
-                        item['reason'] = f"正規署名済み: {sig_org}"
+                        item['reason'] = f'信頼リスト除外: {_skip_reason} | {art}'
+                    continue
 
-        return evidence
+                # 不審パス → 署名検証結果を反映
+                if verify_signature:
+                    sig_status, sig_signer = verify_signature(art)
+                    sig_org = extract_signer_name(sig_signer)
+                    sig_trusted = (sig_status == 'Valid' and is_trusted_signer(sig_signer))
+                    item['sig_status'] = sig_status
+                    item['sig_signer'] = sig_org
+
+                    if sig_trusted and item.get('status') in ('WARNING', 'INFO'):
+                        basename = os.path.basename(art_lower).replace('.exe', '')
+                        if not is_hardcore_tool(basename):
+                            item['status'] = 'SAFE'
+                            item['reason'] = f"正規署名済み: {sig_org}"
+
+            return evidence
+        finally:
+            self._on_detail = None
 
     # ==============================================================
     # 共通: 実行パス解析
@@ -470,10 +462,14 @@ class EvidenceCollector:
                         full_path = sub_key + "\\" + count_path
                         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, full_path) as count_key:
                             num_values = winreg.QueryInfoKey(count_key)[1]
+                            _ua_inner = 0
                             for i in range(num_values):
                                 try:
                                     name, value, _ = winreg.EnumValue(count_key, i)
                                     decoded = self._rot13(name)
+                                    _ua_inner += 1
+                                    if _ua_inner % 100 == 1:
+                                        self._emit_detail(f"UserAssist · {decoded[:160]}")
                                     timestamp_str = self._parse_userassist_timestamp(value)
                                     run_count = self._parse_userassist_runcount(value)
                                     extra = f"実行回数: {run_count}回"
@@ -781,9 +777,13 @@ class EvidenceCollector:
             return results
 
         try:
+            _pf_n = 0
             for filename in os.listdir(prefetch_dir):
                 if not filename.upper().endswith('.PF'):
                     continue
+                _pf_n += 1
+                if _pf_n % 30 == 1:
+                    self._emit_detail(f"Prefetch · {filename}")
                 filepath = os.path.join(prefetch_dir, filename)
 
                 # ファイルシステムのmtime（フォールバック用）
@@ -890,7 +890,11 @@ class EvidenceCollector:
                 value, _ = winreg.QueryValueEx(key, "AppCompatCache")
                 if isinstance(value, bytes):
                     entries = self._parse_shimcache(value)
-                    for entry in entries:
+                    for _si, entry in enumerate(entries):
+                        if _si % 100 == 0:
+                            _ep = (entry.get('path') or '')[:200]
+                            if _ep:
+                                self._emit_detail(f"ShimCache · {_ep}")
                         exe_path = entry.get('path', '')
                         timestamp = entry.get('timestamp', '')
                         extra = f"ShimCacheエントリ順序: {entry.get('position', '?')}"
@@ -1065,7 +1069,9 @@ class EvidenceCollector:
             # InventoryApplicationFile 解析
             try:
                 inv_key = reg.open('Root\\InventoryApplicationFile')
+                _inv_n = 0
                 for sk in inv_key.subkeys():
+                    _inv_n += 1
                     lower_path = ''
                     sha1 = ''
                     publisher = ''
@@ -1090,6 +1096,9 @@ class EvidenceCollector:
 
                     if not lower_path:
                         continue
+
+                    if _inv_n % 60 == 1:
+                        self._emit_detail(f"Amcache · {lower_path[:220]}")
 
                     extra = ''
                     if sha1:
@@ -1166,8 +1175,12 @@ class EvidenceCollector:
             # File キー（旧形式）も解析
             try:
                 file_key = reg.open('Root\\File')
+                _am_fk = 0
                 for vol_key in file_key.subkeys():
                     for entry_key in vol_key.subkeys():
+                        _am_fk += 1
+                        if _am_fk % 50 == 1:
+                            self._emit_detail(f"Amcache(File) · {entry_key.name()}")
                         fpath = ''
                         sha1_f = ''
                         for v in entry_key.values():

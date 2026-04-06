@@ -11,24 +11,14 @@ import os
 import subprocess
 from collections import Counter, defaultdict
 from utils.tutor_template import build_tutor_desc
+from utils import threat_lists as _tl
 
 
 class NetworkCollector:
     """ネットワーク接続の深層解析"""
 
-    # ERR-NET-001: LOLBins拡充リスト
-    LOLBINS = [
-        'powershell.exe', 'pwsh.exe', 'cmd.exe', 'rundll32.exe',
-        'wscript.exe', 'cscript.exe', 'regsvr32.exe', 'mshta.exe',
-        'certutil.exe', 'bitsadmin.exe', 'msiexec.exe',
-        'installutil.exe', 'regasm.exe', 'regsvcs.exe',
-        'msconfig.exe', 'msbuild.exe', 'xwizard.exe',
-        'ieexec.exe', 'dnscmd.exe', 'ftp.exe',
-        'finger.exe', 'bash.exe', 'wsl.exe',
-        'forfiles.exe', 'pcalua.exe', 'presentationhost.exe',
-        'syncappvpublishingserver.exe', 'hh.exe',
-        'mmc.exe', 'control.exe', 'cmstp.exe',
-    ]
+    # ERR-NET-001: LOLBins（プロセス名完全一致・threat_lists 一元管理）
+    LOLBINS = _tl.LOLBIN_PROCESS_NAMES
 
     # ERR-NET-002: C2/マルウェア頻用ポート
     BLACKLIST_PORTS = {
@@ -75,15 +65,8 @@ class NetworkCollector:
     # ERR-NET-005: 大量接続の閾値
     MASS_CONN_THRESHOLD = 30
 
-    # ERR-NET-006: 攻撃ツールプロセス名
-    ATTACK_TOOLS = [
-        'mimikatz', 'psexec', 'psexesvc', 'cobalt', 'beacon',
-        'rubeus', 'sharphound', 'bloodhound', 'lazagne',
-        'chisel', 'ligolo', 'sliver', 'havoc',
-        'nmap', 'masscan', 'crackmapexec', 'evil-winrm',
-        'nc.exe', 'ncat.exe', 'netcat.exe', 'socat.exe',
-        'plink.exe', 'ngrok.exe', 'frpc.exe', 'frps.exe',
-    ]
+    # ERR-NET-006: 攻撃ツールプロセス名（部分一致・threat_lists 一元管理）
+    ATTACK_TOOLS = _tl.ATTACK_TOOLS
 
     def __init__(self):
         self._dns_cache = {}

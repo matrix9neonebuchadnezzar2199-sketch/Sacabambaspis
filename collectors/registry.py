@@ -3,6 +3,7 @@
 import winreg
 import os
 from utils.tutor_template import build_tutor_desc
+from utils import threat_lists as _tl
 
 
 class RegistryCollector:
@@ -37,40 +38,11 @@ class RegistryCollector:
              r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce"),
         ]
 
-        # ===== 共通検知リスト =====
-        self.attack_tools = [
-            'mimikatz', 'psexec', 'cobalt', 'beacon', 'rubeus',
-            'sharphound', 'bloodhound', 'lazagne', 'sliver',
-            'chisel', 'ligolo', 'ngrok', 'netcat', 'nmap',
-            'rclone', 'megasync', 'procdump', 'covenant',
-            'empire', 'meterpreter', 'havoc', 'bruteratel',
-            'sharpwmi', 'seatbelt', 'certify', 'whisker',
-        ]
-
-        self.lolbins = [
-            'powershell', 'pwsh', 'cmd.exe', 'wscript', 'cscript',
-            'mshta', 'rundll32', 'regsvr32', 'certutil',
-            'bitsadmin', 'msiexec', 'bash', 'installutil',
-            'regasm', 'msbuild', 'cmstp', 'wmic', 'forfiles',
-            'pcalua', 'explorer.exe /root',
-        ]
-
-        self.suspicious_args = [
-            '-enc ', '-encodedcommand', '-nop', '-noprofile',
-            '-windowstyle hidden', '-w hidden', '-ep bypass',
-            '-executionpolicy bypass', 'base64', 'invoke-expression',
-            'iex ', 'downloadstring', 'downloadfile', 'net.webclient',
-            'http://', 'https://', 'frombase64string',
-            'start-process', 'new-object', 'io.memorystream',
-        ]
-
-        self.suspicious_paths = [
-            '\\temp\\', '\\tmp\\', '\\appdata\\local\\temp\\',
-            '\\users\\public\\', '\\downloads\\',
-            '\\perflogs\\', '\\programdata\\',
-            '\\recycler\\', '\\$recycle.bin\\',
-            '\\appdata\\roaming\\', '\\appdata\\local\\',
-        ]
+        # ===== 共通検知リスト（utils/threat_lists 一元管理） =====
+        self.attack_tools = list(_tl.ATTACK_TOOLS)
+        self.lolbins = list(_tl.LOLBINS)
+        self.suspicious_args = list(_tl.SUSPICIOUS_ARGS)
+        self.suspicious_paths = list(_tl.SUSPICIOUS_PATH_FRAGMENTS)
 
         # ===== Winlogon 期待値 =====
         self.winlogon_expected = {

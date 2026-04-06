@@ -183,6 +183,50 @@
             corrDiv.style.display = 'none';
         }
 
+        // 同一パス横断テーブル
+        var pcorr = document.getElementById('threat-path-corr');
+        var ptbody = document.getElementById('threat-path-corr-tbody');
+        if (ta.path_correlations && ta.path_correlations.length > 0 && pcorr && ptbody) {
+            pcorr.style.display = 'block';
+            ptbody.innerHTML = '';
+            ta.path_correlations.slice(0, 25).forEach(function(pc) {
+                var tr = document.createElement('tr');
+                var rank = pc.max_severity_rank;
+                var sev = rank >= 4 ? 'DANGER' : (rank >= 3 ? 'WARNING' : 'INFO');
+                var td0 = document.createElement('td');
+                td0.style.wordBreak = 'break-all';
+                td0.textContent = pc.path || '';
+                var td1 = document.createElement('td');
+                td1.textContent = (pc.categories || []).join(', ');
+                var td2 = document.createElement('td');
+                td2.textContent = sev;
+                tr.appendChild(td0);
+                tr.appendChild(td1);
+                tr.appendChild(td2);
+                ptbody.appendChild(tr);
+            });
+        } else if (pcorr) {
+            pcorr.style.display = 'none';
+        }
+
+        // スキャン範囲（API: system.scan_capabilities）
+        var scopeEl = document.getElementById('threat-scope-note');
+        var scopeSum = document.getElementById('threat-scope-summary');
+        var scopeUl = document.getElementById('threat-scope-gaps');
+        var cap = data && data.system && data.system.scan_capabilities;
+        if (cap && scopeEl && scopeSum && scopeUl) {
+            scopeEl.style.display = 'block';
+            scopeSum.textContent = cap.summary_ja || '';
+            scopeUl.innerHTML = '';
+            (cap.gaps_vs_enterprise_forensic || []).forEach(function(g) {
+                var li = document.createElement('li');
+                li.textContent = (g.topic || '') + ': ' + (g.gap || '');
+                scopeUl.appendChild(li);
+            });
+        } else if (scopeEl) {
+            scopeEl.style.display = 'none';
+        }
+
         // カテゴリ別テーブル
         var tbody = document.getElementById('threat-cat-tbody');
         if (tbody && ta.category_details) {
@@ -777,13 +821,17 @@
                 <button id="btn-scan" class="filter-btn" onclick="startScan()" style="margin-left:8px; border-color:var(--accent-error); color:var(--accent-error); font-weight:bold;">⚡ フルスキャン実行</button>
                 <span id="scan-status-text" class="cell-sub" style="margin-left:8px;"></span>
             </div>
+            <div class="cell-sub" style="font-size:0.78rem; color:var(--text-sub,#888); margin:4px 0 8px 0; line-height:1.45;">
+                フルスキャンは<strong>昇格管理者</strong>推奨（イベントログ・他ユーザープロファイル・レジストリ全体）。Sysmon を導入している場合は自動的に Sysmon ログも読み取ります。PowerShell が PATH に通っている必要があります。
+            </div>
 
             <!-- スキャン進捗バー -->
             <div id="scan-progress-container" style="display:none; padding:8px 12px;">
-                <div style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:4px; flex-wrap:wrap;">
                     <span id="scan-progress-label" style="font-weight:bold; color:var(--accent-info);">⚡ スキャン準備中...</span>
                     <span id="scan-progress-pct" class="cell-sub">0%</span>
                 </div>
+                <div id="scan-progress-detail" class="cell-sub" style="font-size:0.8rem; color:var(--text-sub,#888); margin-bottom:6px; word-break:break-all; line-height:1.35; min-height:1.2em;"></div>
                 <div style="background:var(--bg-tertiary); border-radius:4px; height:8px; overflow:hidden;">
                     <div id="scan-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--accent-info), var(--accent-success)); transition:width 0.3s;"></div>
                 </div>
@@ -6051,6 +6099,8 @@ function startScan() {
     document.getElementById('scan-progress-bar').style.width = '0%';
     document.getElementById('scan-progress-pct').textContent = '0%';
     document.getElementById('scan-progress-label').textContent = '⚡ スキャン開始...';
+    var scanDet = document.getElementById('scan-progress-detail');
+    if (scanDet) scanDet.textContent = '';
     document.getElementById('scan-status-text').textContent = '';
 
     fetch('/api/scan/start', {method:'POST'}).then(function(r) { return r.json(); }).then(function(res) {
@@ -6075,6 +6125,8 @@ function _pollScanStatus() {
         document.getElementById('scan-progress-bar').style.width = s.progress + '%';
         document.getElementById('scan-progress-pct').textContent = s.progress + '%';
         document.getElementById('scan-progress-label').textContent = '⚡ ' + (s.step || '処理中...');
+        var detEl = document.getElementById('scan-progress-detail');
+        if (detEl) detEl.textContent = (s.detail && String(s.detail)) || '';
 
         if (s.done) {
             var btn = document.getElementById('btn-scan');
@@ -6082,9 +6134,11 @@ function _pollScanStatus() {
             btn.innerHTML = '⚡ フルスキャン実行';
             if (s.error) {
                 document.getElementById('scan-progress-label').textContent = '❌ エラー: ' + s.error;
+                if (detEl) detEl.textContent = '';
                 document.getElementById('scan-status-text').textContent = 'スキャンエラー';
             } else {
                 document.getElementById('scan-progress-label').textContent = '✅ スキャン完了！データを更新中...';
+                if (detEl) detEl.textContent = '';
                 document.getElementById('scan-status-text').textContent = '完了';
                 fetch('/api/data').then(function(r) { return r.json(); }).then(function(data) {
                     window._scanData = data;
@@ -6559,6 +6613,20 @@ switchTab = function(id, el) {
             <div class="threat-correlation" id="threat-correlation" style="display:none;">
                 <div class="threat-section-title">🔗 クロスモジュール相関検知</div>
                 <ul id="threat-correlation-list"></ul>
+            </div>
+            <div class="threat-path-corr" id="threat-path-corr" style="display:none; margin-top:10px;">
+                <div class="threat-section-title">📎 同一パス横断（詳細）</div>
+                <div style="overflow-x:auto; max-height:220px; font-size:0.82rem;">
+                    <table class="threat-cat-table" style="width:100%;">
+                        <thead><tr><th>パス</th><th>ソース</th><th>深刻度</th></tr></thead>
+                        <tbody id="threat-path-corr-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="threat-scope-note" id="threat-scope-note" style="display:none; margin-top:10px; font-size:0.78rem; color:var(--text-sub,#888); line-height:1.4;">
+                <div class="threat-section-title">📌 スキャン範囲・限界</div>
+                <p id="threat-scope-summary" style="margin:6px 0;"></p>
+                <ul id="threat-scope-gaps" style="margin:0; padding-left:1.2em;"></ul>
             </div>
             <div class="threat-categories" id="threat-categories">
                 <div class="threat-section-title">📋 カテゴリ別内訳</div>

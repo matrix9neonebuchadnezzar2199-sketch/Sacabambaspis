@@ -8,21 +8,7 @@ from utils.tutor_template import build_tutor_desc
 
 class ADSCollector:
     def __init__(self):
-        self.scan_dirs = []
-        user_profile = os.environ.get('USERPROFILE', '')
-        if user_profile:
-            self.scan_dirs = [
-                os.path.join(user_profile, 'Downloads'),
-                os.path.join(user_profile, 'Desktop'),
-                os.path.join(user_profile, 'Documents'),
-                os.path.join(user_profile, 'AppData', 'Local', 'Temp'),
-            ]
-        self.scan_dirs.extend([
-            r'C:\Users\Public',
-            r'C:\Users\Public\Downloads',
-            r'C:\Users\Public\Music',
-            r'C:\Users\Public\Videos',
-        ])
+        self.scan_dirs = self._build_scan_dirs()
 
         self.target_extensions = [
             '.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js',
@@ -39,6 +25,57 @@ class ADSCollector:
             '3': 'インターネット',
             '4': '制限付きサイト',
         }
+
+    @staticmethod
+    def _build_scan_dirs():
+        """現在ユーザーに加え、C:\\Users 配下の他プロファイルも走査（権限があれば）。"""
+        dirs = []
+        user_profile = os.environ.get('USERPROFILE', '')
+        if user_profile:
+            dirs.extend([
+                os.path.join(user_profile, 'Downloads'),
+                os.path.join(user_profile, 'Desktop'),
+                os.path.join(user_profile, 'Documents'),
+                os.path.join(user_profile, 'AppData', 'Local', 'Temp'),
+            ])
+        dirs.extend([
+            r'C:\Users\Public',
+            r'C:\Users\Public\Downloads',
+            r'C:\Users\Public\Music',
+            r'C:\Users\Public\Videos',
+        ])
+        users_root = os.path.join(os.environ.get('SystemDrive', 'C:') + os.sep, 'Users')
+        if os.path.isdir(users_root):
+            skip = {
+                'public', 'default', 'default user', 'all users',
+                'desktop.ini',
+            }
+            for entry in os.listdir(users_root):
+                if entry.lower() in skip or not entry:
+                    continue
+                home = os.path.join(users_root, entry)
+                if not os.path.isdir(home):
+                    continue
+                for sub in (
+                    'Downloads',
+                    'Desktop',
+                    'Documents',
+                    os.path.join('AppData', 'Local', 'Temp'),
+                ):
+                    p = os.path.join(home, sub)
+                    if os.path.isdir(p):
+                        dirs.append(p)
+        seen = set()
+        out = []
+        for d in dirs:
+            try:
+                nd = os.path.normcase(os.path.normpath(d))
+            except (OSError, ValueError):
+                nd = d
+            if nd not in seen:
+                seen.add(nd)
+                out.append(d)
+        return out
 
     def scan(self):
         results = []

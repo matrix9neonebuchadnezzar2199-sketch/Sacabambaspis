@@ -31,6 +31,7 @@ from collectors.recall import RecallCollector
 from collectors.binary_rename import BinaryRenameCollector
 from collectors.lnk_forensics import LnkForensicsCollector
 from collectors.mutant import MutantCollector
+from collectors.security_surface import SecuritySurfaceCollector
 from collectors.memdump import MemoryDumper
 from collectors.file_inspector import FileInspector
 from utils.yara_manager import YaraManager
@@ -41,6 +42,8 @@ from utils.ioc_database import (
     parse_ioc_import_text,
 )
 from utils.scan_diff import diff_scans, load_scan_json
+from utils.path_correlation import find_path_correlations, find_path_correlations_info_tier
+from utils.scan_capabilities import build_scan_capability_report
 
 
 # --- 設定 ---
@@ -139,6 +142,25 @@ def calculate_threat_score(scan_data):
     elif len(danger_categories) >= 3:
         correlation_reasons.append(f'{len(danger_categories)}カテゴリでDANGER検知 → APT活動の兆候')
 
+    path_correlations = find_path_correlations(scan_data, min_rank=3)
+    path_correlations_info = find_path_correlations_info_tier(scan_data)
+    for pc in path_correlations[:15]:
+        pshort = pc["path"][:140] + ("…" if len(pc["path"]) > 140 else "")
+        correlation_reasons.append(
+            "同一パスが複数ソースで検出: "
+            + pshort
+            + " → "
+            + ", ".join(pc["categories"])
+        )
+    for pc in path_correlations_info[:5]:
+        pshort = pc["path"][:120] + ("…" if len(pc["path"]) > 120 else "")
+        correlation_reasons.append(
+            "[参考・INFOのみ] 同一パス複数ソース: "
+            + pshort
+            + " → "
+            + ", ".join(pc["categories"])
+        )
+
     # 脅威レベル: DANGERカテゴリ数で判定
     dc = len(danger_categories)
     if dc >= 5:
@@ -175,6 +197,8 @@ def calculate_threat_score(scan_data):
         'danger_categories': danger_categories,
         'danger_category_count': dc,
         'correlation_reasons': correlation_reasons,
+        'path_correlations': path_correlations,
+        'path_correlations_info': path_correlations_info,
         'category_details': details
     }
 
@@ -845,14 +869,28 @@ def save_report(data):
 # ============================================
 # Scan API (background thread)
 # ============================================
-_scan_status = {"running": False, "progress": 0, "step": "", "done": False, "error": None}
+_scan_status = {
+    "running": False,
+    "progress": 0,
+    "step": "",
+    "detail": "",
+    "done": False,
+    "error": None,
+}
 
 @app.route('/api/scan/start', methods=['POST'])
 def api_scan_start():
     global _scan_status
     if _scan_status["running"]:
         return jsonify({"status": "error", "message": "Scan already running"})
-    _scan_status = {"running": True, "progress": 0, "step": "Starting...", "done": False, "error": None}
+    _scan_status = {
+        "running": True,
+        "progress": 0,
+        "step": "Starting...",
+        "detail": "",
+        "done": False,
+        "error": None,
+    }
     t = threading.Thread(target=_run_scan, daemon=True)
     t.start()
     return jsonify({"status": "ok", "message": "Scan started"})
@@ -879,6 +917,14 @@ def _run_scan():
         def update(step, progress):
             _scan_status["step"] = step
             _scan_status["progress"] = progress
+            _scan_status["detail"] = ""
+
+        def set_scan_detail(text):
+            """サブスキャン内の細かい進捗（ファイル名など）。進捗バー%は update のまま。"""
+            if text:
+                _scan_status["detail"] = str(text)[:420]
+            else:
+                _scan_status["detail"] = ""
 
         # 1. Process & DNA & PE-sieve
         update("プロセス & DNA & メモリインジェクション解析中...", 5)
@@ -887,6 +933,7 @@ def _run_scan():
         dna_c = DNACollector()
         for p in procs:
             if p['status'] != 'SAFE' and os.path.exists(p['path']):
+                set_scan_detail("DNA · " + os.path.basename(p["path"]))
                 res = dna_c.analyze_file(p['path'])
                 if res:
                     p['dna'] = res
@@ -908,7 +955,7 @@ def _run_scan():
         # 2. Memory
         update("メモリ解析中...", 15)
         mem_c = MemoryCollector()
-        injections = mem_c.scan()
+        injections = mem_c.scan(on_detail=set_scan_detail)
 
         # 3. Persistence
         update("永続化設定チェック中...", 25)
@@ -924,7 +971,7 @@ def _run_scan():
         # 5. Evidence
         update("実行痕跡解析中...", 45)
         evid_c = EvidenceCollector()
-        evidence = evid_c.scan()
+        evidence = evid_c.scan(on_detail=set_scan_detail)
 
         # 6. EventLog
         update("イベントログ解析中...", 55)
@@ -976,8 +1023,12 @@ def _run_scan():
         mutant_c = MutantCollector()
         mutant_results = mutant_c.scan()
 
+        # 16. セキュリティ製品表面 / スキャン範囲ガイダンス（ユーザーモードのみ）
+        update("セキュリティ面チェック中...", 98)
+        security_surface = SecuritySurfaceCollector().scan()
+
         # Self-marking
-        update("自己除外処理中...", 96)
+        update("自己除外処理中...", 99)
         self_pids = {self_pid, self_ppid}
         for p in procs:
             p['is_self'] = p['pid'] in self_pids
@@ -1008,23 +1059,26 @@ def _run_scan():
             mt['is_self'] = False
         for p in persistence:
             p['is_self'] = False
+        for sv in security_surface:
+            sv['is_self'] = False
 
-        # Aggregate
-        update("集計・スコアリング中...", 98)
+        # Aggregate（Threats バッジ: 各カテゴリの DANGER を自己関連イベント除きで合算）
+        update("集計・スコアリング中...", 100)
         flags = sum(1 for x in procs if x['status']=='DANGER' and not x.get('is_self')) + \
-                sum(1 for x in persistence if x['status']=='DANGER') + \
+                sum(1 for x in persistence if x['status']=='DANGER' and not x.get('is_self')) + \
                 sum(1 for x in networks if x['status']=='DANGER' and not x.get('is_self')) + \
-                sum(1 for x in logs if x['status']=='DANGER') + \
-                sum(1 for x in injections if not x.get('is_self')) + \
-                sum(1 for x in pca_results if x['status']=='DANGER') + \
-                sum(1 for x in ads_results if x['status']=='DANGER') + \
-                sum(1 for x in wsl_results if x['status']=='DANGER') + \
-                sum(1 for x in cam_results if x['status']=='DANGER') + \
-                sum(1 for x in srum_results if x['status']=='DANGER') + \
-                sum(1 for x in recall_results if x['status']=='DANGER') + \
-                sum(1 for x in binrename_results if x['status']=='DANGER') + \
-                sum(1 for x in lnk_results if x['status']=='DANGER') + \
-                sum(1 for x in mutant_results if x['status']=='DANGER')
+                sum(1 for x in logs if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in injections if x.get('status')=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in evidence if x.get('status')=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in pca_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in ads_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in wsl_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in cam_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in srum_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in recall_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in binrename_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in lnk_results if x['status']=='DANGER' and not x.get('is_self')) + \
+                sum(1 for x in mutant_results if x['status']=='DANGER' and not x.get('is_self'))
 
         # UUID付与（証拠保全用一意識別子）
         assign_uids(procs)
@@ -1042,13 +1096,15 @@ def _run_scan():
         assign_uids(binrename_results)
         assign_uids(lnk_results)
         assign_uids(mutant_results)
+        assign_uids(security_surface)
 
         scan_results = {
             "system": {
                 "hostname": socket.gethostname(),
                 "os": os.name.upper(),
                 "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "red_flags": flags
+                "red_flags": flags,
+                "scan_capabilities": build_scan_capability_report(len(security_surface)),
             },
             "processes": procs,
             "memory": injections,
@@ -1064,7 +1120,8 @@ def _run_scan():
             "recall": recall_results,
             "binrename": binrename_results,
             "lnk": lnk_results,
-            "mutant": mutant_results
+            "mutant": mutant_results,
+            "security_surface": security_surface,
         }
 
         threat_assessment = calculate_threat_score(scan_results)
@@ -1078,6 +1135,7 @@ def _run_scan():
 
         _scan_status["progress"] = 100
         _scan_status["step"] = "完了"
+        _scan_status["detail"] = ""
         _scan_status["done"] = True
         _scan_status["running"] = False
 
@@ -1085,6 +1143,7 @@ def _run_scan():
         import traceback
         _scan_status["error"] = str(e)
         _scan_status["step"] = "エラー発生"
+        _scan_status["detail"] = ""
         _scan_status["running"] = False
         _scan_status["done"] = True
         traceback.print_exc()
