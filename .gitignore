@@ -12,6 +12,7 @@ __pycache__/
 # ログ・バックアップ
 logs/
 backup/
+data/
 
 # 環境
 .env

@@ -716,6 +716,14 @@
                 <span class="sidebar-item-icon">💾</span>
                 <span class="sidebar-item-text">履歴</span>
             </div>
+            <div class="sidebar-item" data-tab="scandiff" onclick="switchTab('scandiff', this)">
+                <span class="sidebar-item-icon">⚖️</span>
+                <span class="sidebar-item-text">スキャン差分</span>
+            </div>
+            <div class="sidebar-item" data-tab="iocmgr" onclick="switchTab('iocmgr', this)">
+                <span class="sidebar-item-icon">🎯</span>
+                <span class="sidebar-item-text">IOC取込</span>
+            </div>
         </nav>
 
         <div class="sidebar-footer">
@@ -1216,6 +1224,43 @@
                 </div>
             </div>
 
+            <!-- ===== スキャン差分 ===== -->
+            <div id="tab-scandiff" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">⚖️ スキャン差分（履歴との比較）</span>
+                    保存済みの <code>scan_*.json</code> をベースラインに、<b>現在の表示データ</b>との追加・削除をカテゴリ別に表示します。先にフルスキャンするか、履歴を読み込んでから実行してください。
+                </div>
+                <div style="padding:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+                    <label>ベースライン:</label>
+                    <select id="diff-baseline-select" style="min-width:280px;padding:6px;"></select>
+                    <button type="button" class="filter-btn" onclick="runScanDiff()">差分を計算</button>
+                </div>
+                <div id="diff-summary" class="cell-sub" style="padding:8px 12px;"></div>
+                <div style="padding:8px;">
+                    <h3 style="margin:8px 0;">追加された項目</h3>
+                    <pre id="diff-added" style="white-space:pre-wrap;font-size:12px;padding:12px;background:var(--bg-secondary);border-radius:6px;max-height:38vh;overflow:auto;"></pre>
+                    <h3 style="margin:16px 0 8px;">削除された項目</h3>
+                    <pre id="diff-removed" style="white-space:pre-wrap;font-size:12px;padding:12px;background:var(--bg-secondary);border-radius:6px;max-height:38vh;overflow:auto;"></pre>
+                </div>
+            </div>
+
+            <!-- ===== IOC 取込 ===== -->
+            <div id="tab-iocmgr" class="card">
+                <div class="guide-box">
+                    <span class="guide-title">🎯 IOC ハッシュ取込</span>
+                    <b>SHA256（64 hex）を推奨</b>します（衝突耐性のため）。Amcache が SHA1 のみ返す場合は <b>SHA1（40 hex）</b> も利用可能です。<br>
+                    1行1件: <code>ハッシュ,表示名</code> またはハッシュのみ。コメントは <code>#</code> で始めます。
+                </div>
+                <div id="ioc-status-line" class="cell-sub" style="padding:8px 12px;"></div>
+                <textarea id="ioc-import-text" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;box-sizing:border-box;" placeholder="# 例（SHA256）&#10;abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789,サンプル名"></textarea>
+                <div style="padding:10px;display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="filter-btn" onclick="importIoc(false)">追記取込</button>
+                    <button type="button" class="filter-btn" onclick="importIoc(true)">全置換</button>
+                    <button type="button" class="filter-btn" onclick="clearIoc()">ユーザーIOCクリア</button>
+                    <button type="button" class="filter-btn" onclick="refreshIocStatus()">状態更新</button>
+                </div>
+            </div>
+
             <!-- P26: メモリ抽出タブ -->
         <div id="tab-binrename" aria-label="バイナリリネーム検知結果" class="card">
             <h2>🎭 バイナリリネーム検知</h2>
@@ -1688,7 +1733,11 @@ const CAT_CONFIG = {
     'Process':  { label: 'Process', class: 'tag-file' },
     'Evidence': { label: 'Artifact', class: 'tag-evid' },
     'Network':  { label: 'Network', class: 'tag-net' },
-    'Persistence': { label: 'Startup', class: 'tag-dang' }
+    'Persistence': { label: 'Startup', class: 'tag-dang' },
+    'Memory': { label: 'Memory', class: 'tag-dang' },
+    'BinRename': { label: 'BinRename', class: 'tag-file' },
+    'LNK': { label: 'LNK', class: 'tag-file' },
+    'Mutant': { label: 'Mutant', class: 'tag-dang' }
 };
 
 function highlightPaths(text) {
@@ -1704,7 +1753,8 @@ function highlightPaths(text) {
 
 const CAT_COLORS = {
     'EventLog': '#4fc3f7', 'Process': '#ef5350', 'Evidence': '#ab47bc',
-    'Network': '#66bb6a', 'Persistence': '#ffa726', 'Other': '#78909c'
+    'Network': '#66bb6a', 'Persistence': '#ffa726', 'Memory': '#ec407a',
+    'BinRename': '#ffca28', 'LNK': '#29b6f6', 'Mutant': '#ef5350', 'Other': '#78909c'
 };
 let histDateStart = null, histDateEnd = null;
 let clickedBarDay = null;
@@ -1825,6 +1875,12 @@ function switchTab(id, el) {
     }
     if (id === 'fileinspect') {
         if (typeof yaraLoadStatus === 'function') yaraLoadStatus();
+    }
+    if (id === 'iocmgr' && typeof refreshIocStatus === 'function') {
+        refreshIocStatus();
+    }
+    if (id === 'scandiff' && typeof populateDiffBaseline === 'function') {
+        populateDiffBaseline();
     }
 }
 
@@ -2081,7 +2137,7 @@ function updateImportantFilteredCount(count) {
 
 
 function getTabLabel(tab) {
-    const map = { proc:'プロセス', memory:'メモリ', logs:'ログ', persist:'永続化', network:'通信', evidence:'痕跡', pca:'PCA', ads:'ADS', wsl:'WSL', cam:'CAM DB', srum:'SRUM', recall:'Recall', timeline:'TL' };
+    const map = { proc:'プロセス', memory:'メモリ', logs:'ログ', persist:'永続化', network:'通信', evidence:'痕跡', pca:'PCA', ads:'ADS', wsl:'WSL', cam:'CAM DB', srum:'SRUM', recall:'Recall', timeline:'TL', binrename:'リネーム', lnk:'LNK', mutant:'ミューテックス', scandiff:'差分', iocmgr:'IOC' };
     return map[tab] || tab;
 }
 
@@ -2127,6 +2183,106 @@ function deleteReport(filename) {
     fetch('/api/history/delete/' + filename).then(r => r.json()).then(res => {
         if (res.status === 'ok') loadHistoryList();
         else alert('削除失敗: ' + res.message);
+    });
+}
+
+function populateDiffBaseline() {
+    fetch('/api/history/list').then(r => r.json()).then(list => {
+        var sel = document.getElementById('diff-baseline-select');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">-- 履歴を選択 --</option>';
+        list.forEach(function(item) {
+            var o = document.createElement('option');
+            o.value = item.filename;
+            o.textContent = item.scan_time + ' | ' + item.hostname + ' | ' + item.filename;
+            sel.appendChild(o);
+        });
+    });
+}
+
+function runScanDiff() {
+    var sel = document.getElementById('diff-baseline-select');
+    var fn = sel && sel.value;
+    if (!fn) {
+        alert('ベースラインの履歴を選択してください');
+        return;
+    }
+    fetch('/api/analysis/diff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseline_file: fn })
+    }).then(r => r.json()).then(function(res) {
+        if (res.status !== 'ok') {
+            alert(res.message || 'エラー');
+            return;
+        }
+        var meta = res.meta || {};
+        var sumEl = document.getElementById('diff-summary');
+        if (sumEl) {
+            sumEl.textContent = 'ベース: ' + (meta.baseline_scan_time || '-') + ' / 現在: ' + (meta.current_scan_time || '-');
+        }
+        function truncPart(part) {
+            var o = {};
+            for (var k in part) {
+                if (!Object.prototype.hasOwnProperty.call(part, k)) continue;
+                var arr = part[k];
+                if (Array.isArray(arr) && arr.length > 30) {
+                    o[k] = arr.slice(0, 30).concat([{ _note: '他 ' + (arr.length - 30) + ' 件（省略）' }]);
+                } else {
+                    o[k] = arr;
+                }
+            }
+            return o;
+        }
+        var addEl = document.getElementById('diff-added');
+        var remEl = document.getElementById('diff-removed');
+        if (addEl) addEl.textContent = JSON.stringify(truncPart(res.added || {}), null, 2);
+        if (remEl) remEl.textContent = JSON.stringify(truncPart(res.removed || {}), null, 2);
+    }).catch(function(e) {
+        alert('差分取得エラー: ' + e);
+    });
+}
+
+function refreshIocStatus() {
+    fetch('/api/ioc/status').then(r => r.json()).then(function(res) {
+        var el = document.getElementById('ioc-status-line');
+        if (!el) return;
+        if (res.status !== 'ok') {
+            el.textContent = res.message || '状態取得失敗';
+            return;
+        }
+        el.textContent = '内蔵 SHA1: ' + (res.builtin_sha1 || 0) + ' / 内蔵 SHA256: ' + (res.builtin_sha256 || 0) +
+            ' | ユーザー SHA256: ' + (res.user_sha256 || 0) + ' / ユーザー SHA1: ' + (res.user_sha1 || 0) +
+            ' | ioc_custom.txt 行: ' + (res.custom_txt_lines || 0);
+    });
+}
+
+function importIoc(replace) {
+    var ta = document.getElementById('ioc-import-text');
+    var text = ta ? ta.value : '';
+    fetch('/api/ioc/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text, replace: replace })
+    }).then(r => r.json()).then(function(res) {
+        if (res.status !== 'ok') {
+            alert(res.message || '取込失敗');
+            return;
+        }
+        alert('取込完了: SHA256 +' + (res.sha256_added || 0) + ', SHA1 +' + (res.sha1_added || 0));
+        refreshIocStatus();
+    });
+}
+
+function clearIoc() {
+    if (!confirm('ユーザー登録の IOC をすべて削除しますか？')) return;
+    fetch('/api/ioc/clear', { method: 'POST' }).then(r => r.json()).then(function(res) {
+        if (res.status === 'ok') {
+            alert('クリアしました');
+            refreshIocStatus();
+        } else {
+            alert(res.message || '失敗');
+        }
     });
 }
 
@@ -2177,6 +2333,24 @@ function processData() {
     // Recall
     if (allData.recall) allData.recall.forEach(r => {
         timelineItems.push({ ts: parse(r.timestamp), cat: 'Evidence', id: 'Recall', target: r.artifact, reason: r.reason || '', status: r.status, is_self: false, _src: r });
+    });
+
+    const scanTs = parse((allData.system && allData.system.scan_time) || '');
+    if (allData.memory) allData.memory.forEach(m => {
+        timelineItems.push({ ts: scanTs, cat: 'Memory', id: m.pid, target: (m.name || '') + ' @ ' + (m.address || ''), reason: m.reason || m.desc || '', status: m.status, is_self: m.is_self, _src: m });
+    });
+    if (allData.persistence) allData.persistence.forEach(p => {
+        timelineItems.push({ ts: scanTs, cat: 'Persistence', id: p.type || '-', target: (p.name || p.entry || p.artifact || '-'), reason: p.reason || '', status: p.status, is_self: false, _src: p });
+    });
+    if (allData.binrename) allData.binrename.forEach(b => {
+        timelineItems.push({ ts: scanTs, cat: 'BinRename', id: '-', target: b.exe_name || b.exe_path, reason: b.reason || '', status: b.status, is_self: false, _src: b });
+    });
+    if (allData.lnk) allData.lnk.forEach(l => {
+        var lts = parse(l.creation_time || l.write_time || l.access_time) || scanTs;
+        timelineItems.push({ ts: lts, cat: 'LNK', id: '-', target: l.lnk_path || l.artifact, reason: l.reason || '', status: l.status, is_self: false, _src: l });
+    });
+    if (allData.mutant) allData.mutant.forEach(mu => {
+        timelineItems.push({ ts: scanTs, cat: 'Mutant', id: '-', target: mu.artifact || mu.detail, reason: mu.reason || '', status: mu.status, is_self: false, _src: mu });
     });
 
     timelineItems = timelineItems.filter(i => i.ts > 0).sort((a, b) => b.ts - a.ts);
@@ -2668,8 +2842,9 @@ function toggleSelfFilter() {
 
     function catToTab(cat) {
         var map = { 'Network': 'network', 'Process': 'proc', 'EventLog': 'logs', 'Evidence': 'evidence',
-                    'Memory': 'memory', 'Persist': 'persist', 'PCA': 'pca', 'ADS': 'ads',
-                    'WSL': 'wsl', 'Camera': 'cam', 'SRUM': 'srum', 'Recall': 'recall' };
+                    'Memory': 'memory', 'Persistence': 'persist', 'Persist': 'persist', 'PCA': 'pca', 'ADS': 'ads',
+                    'WSL': 'wsl', 'Camera': 'cam', 'SRUM': 'srum', 'Recall': 'recall',
+                    'BinRename': 'binrename', 'LNK': 'lnk', 'Mutant': 'mutant' };
         return map[cat] || cat.toLowerCase();
     }
 
@@ -3063,7 +3238,12 @@ function getDetailFields(tab, d) {
             { label: 'パス', value: d.path },
             { label: '検知理由', value: d.reason, type: d.reason ? 'danger' : '' },
             { label: '解説', value: d.desc || '-' },
+            { label: 'DNA SHA256', value: (d.dna && d.dna.sha256) ? d.dna.sha256 : '-' },
             { label: 'DNAエントロピー', value: d.dna ? d.dna.entropy + ' (' + d.dna.verdict + ')' : '-' },
+            { label: 'IOCマッチ', value: d.ioc_match || '-', type: d.ioc_match ? 'danger' : '' },
+            { label: 'IOCカテゴリ', value: d.ioc_category || '-' },
+            { label: 'IOC MITRE', value: d.ioc_mitre || '-' },
+            { label: 'IOC深刻度', value: d.ioc_severity || '-', type: d.ioc_severity === 'critical' ? 'danger' : (d.ioc_severity === 'high' ? 'warning' : '') },
             { label: '起動時刻', value: d.time },
             { label: '判定', value: statusText, type: statusType }
         ];

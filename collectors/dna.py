@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # collectors/dna.py - P17: MITRE ATT&CK + Tutor Mode 統合版
+import hashlib
 import math
 import os
 
@@ -85,6 +86,7 @@ class DNACollector:
                 data = f.read()
 
             entropy = self._shannon_entropy(data)
+            sha256_hex = hashlib.sha256(data).hexdigest()
             filename = os.path.basename(filepath)
             file_ext = os.path.splitext(filename)[1].lower()
 
@@ -94,6 +96,7 @@ class DNACollector:
 
             return {
                 "entropy": round(entropy, 3),
+                "sha256": sha256_hex,
                 "verdict": verdict,
                 "status": status,
                 "reason": reason,

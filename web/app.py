@@ -34,6 +34,13 @@ from collectors.mutant import MutantCollector
 from collectors.memdump import MemoryDumper
 from collectors.file_inspector import FileInspector
 from utils.yara_manager import YaraManager
+from utils.ioc_database import (
+    check_sha256_ioc,
+    clear_user_iocs,
+    get_ioc_stats,
+    parse_ioc_import_text,
+)
+from utils.scan_diff import diff_scans, load_scan_json
 
 
 # --- 設定 ---
@@ -275,6 +282,55 @@ def delete_history(filename):
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)})
     return jsonify({"status": "error", "message": "File not found"})
+
+
+@app.route('/api/analysis/diff', methods=['POST'])
+def api_analysis_diff():
+    """履歴 JSON（baseline）と現在の scan_results を比較。"""
+    global scan_results
+    data = request.get_json() or {}
+    baseline_file = data.get('baseline_file')
+    if not baseline_file:
+        return jsonify({"status": "error", "message": "baseline_file が必要です"})
+    fp = _safe_history_path(baseline_file)
+    if not fp or not os.path.isfile(fp):
+        return jsonify({"status": "error", "message": "ベースラインが見つかりません"})
+    try:
+        baseline = load_scan_json(fp)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    d = diff_scans(baseline, scan_results)
+    return jsonify({"status": "ok", **d})
+
+
+@app.route('/api/ioc/status')
+def api_ioc_status():
+    try:
+        return jsonify({"status": "ok", **get_ioc_stats()})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route('/api/ioc/import', methods=['POST'])
+def api_ioc_import():
+    data = request.get_json() or {}
+    text = data.get('text', '')
+    replace = bool(data.get('replace'))
+    try:
+        r = parse_ioc_import_text(text, replace=replace)
+        return jsonify({"status": "ok", **r})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route('/api/ioc/clear', methods=['POST'])
+def api_ioc_clear():
+    try:
+        clear_user_iocs()
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 
 # ============================================
 # P26: Memory Dump & Analysis API
@@ -834,6 +890,17 @@ def _run_scan():
                 res = dna_c.analyze_file(p['path'])
                 if res:
                     p['dna'] = res
+                    if res.get('sha256'):
+                        try:
+                            hit = check_sha256_ioc(res['sha256'])
+                            if hit:
+                                p['ioc_match'] = hit['name']
+                                p['ioc_category'] = hit['category_jp']
+                                p['ioc_mitre'] = hit['mitre']
+                                p['ioc_severity'] = hit['severity']
+                                p['reason'] = (p.get('reason') or '') + ' [IOC:' + hit['name'] + ']'
+                        except Exception:
+                            pass
                     if res['entropy'] > 7.2:
                         p['reason'] += " [高エントロピー]"
                         p['status'] = "DANGER"

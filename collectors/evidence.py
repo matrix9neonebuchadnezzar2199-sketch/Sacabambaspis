@@ -28,9 +28,11 @@ except ImportError:
         return ''
 
 try:
-    from utils.ioc_database import check_sha1_ioc
+    from utils.ioc_database import check_sha1_ioc, check_sha256_ioc, compute_file_sha256
 except ImportError:
     check_sha1_ioc = None
+    check_sha256_ioc = None
+    compute_file_sha256 = None
 
 
 class EvidenceCollector:
@@ -1086,13 +1088,24 @@ class EvidenceCollector:
                     if sha1:
                         extra += 'SHA1: ' + sha1 + '\\n'
 
-                    # P46: SHA1 IOC照合
+                    # P46: IOC（SHA1 は Amcache 既定、ファイル実体が取れる場合は SHA256 も照合）
                     ioc_hit = None
                     if check_sha1_ioc and sha1:
                         ioc_hit = check_sha1_ioc(sha1)
                         if ioc_hit:
-                            extra += 'IOC一致: ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')\\n'
+                            extra += 'IOC一致(SHA1): ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')\\n'
                             extra += 'MITRE: ' + ioc_hit['mitre'] + ' | 深刻度: ' + ioc_hit['severity'] + '\\n'
+
+                    if not ioc_hit and compute_file_sha256 and check_sha256_ioc and os.path.isfile(lower_path):
+                        try:
+                            s256 = compute_file_sha256(lower_path)
+                            extra += 'SHA256: ' + s256 + '\\n'
+                            ioc_hit = check_sha256_ioc(s256)
+                            if ioc_hit:
+                                extra += 'IOC一致(SHA256): ' + ioc_hit['name'] + ' (' + ioc_hit['category_jp'] + ')\\n'
+                                extra += 'MITRE: ' + ioc_hit['mitre'] + ' | 深刻度: ' + ioc_hit['severity'] + '\\n'
+                        except Exception:
+                            pass
 
                     if publisher:
                         extra += '発行者: ' + publisher + '\\n'
