@@ -1,6 +1,7 @@
-flask
-psutil
-pyinstaller
+# 最低バージョン（再現性・脆弱性調査の基準）。必要に応じて pip-compile 等で固定してください。
+flask>=3.0.0,<4
+psutil>=5.9.0,<8
+pyinstaller>=6.0.0
 sigma-rule-matcher
 pySigma
 pyyaml

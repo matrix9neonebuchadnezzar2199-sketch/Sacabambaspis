@@ -1,17 +1,31 @@
 ﻿# -*- coding: utf-8 -*-
-import sys
-import os
-import socket
-import json
+from __future__ import annotations
+
+import copy
 import glob
-import time
+import json
+import os
+import re
+import socket
+import sys
 import threading
+import time
 import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from typing import Any
+
 from flask import Flask, render_template, jsonify, request
+
+from utils.app_logging import configure_logging, get_logger
 from utils.path_helper import resource_path
+from utils.threat_thresholds import (
+    THREAT_CORR_MULTI_MODERATE_MIN,
+    THREAT_CORR_MULTI_SEVERE_MIN,
+    THREAT_DC_CRITICAL_MIN,
+    THREAT_DC_HIGH_MIN,
+)
 
 # Collectors Import
 from collectors.process import ProcessCollector
@@ -45,6 +59,8 @@ from utils.scan_diff import diff_scans, load_scan_json
 from utils.path_correlation import find_path_correlations, find_path_correlations_info_tier
 from utils.scan_capabilities import build_scan_capability_report
 
+configure_logging()
+logger = get_logger(__name__)
 
 # --- 設定 ---
 template_dir = resource_path(os.path.join('web', 'templates'))
@@ -60,7 +76,7 @@ _yara_manager = YaraManager()
 # ================================================================
 # P15: 統合脅威スコアリングエンジン
 # ================================================================
-def calculate_threat_score(scan_data):
+def calculate_threat_score(scan_data: dict[str, Any]) -> dict[str, Any]:
     """
     全コレクター結果の件数サマリーとカテゴリ別内訳を算出。
     スコアは使わず、DANGER/WARNING/INFO/SAFE の件数で判断する。
@@ -137,9 +153,9 @@ def calculate_threat_score(scan_data):
     if 'binrename' in danger_categories and 'processes' in danger_categories:
         correlation_reasons.append('バイナリリネーム＋不審プロセス → マスカレードの可能性')
 
-    if len(danger_categories) >= 5:
+    if len(danger_categories) >= THREAT_CORR_MULTI_SEVERE_MIN:
         correlation_reasons.append(f'{len(danger_categories)}カテゴリでDANGER検知 → 深刻な侵害の可能性')
-    elif len(danger_categories) >= 3:
+    elif len(danger_categories) >= THREAT_CORR_MULTI_MODERATE_MIN:
         correlation_reasons.append(f'{len(danger_categories)}カテゴリでDANGER検知 → APT活動の兆候')
 
     path_correlations = find_path_correlations(scan_data, min_rank=3)
@@ -163,11 +179,11 @@ def calculate_threat_score(scan_data):
 
     # 脅威レベル: DANGERカテゴリ数で判定
     dc = len(danger_categories)
-    if dc >= 5:
+    if dc >= THREAT_DC_CRITICAL_MIN:
         level = 'CRITICAL'
         level_ja = '🔴 深刻'
         verdict = f'{dc}カテゴリでDANGER検知。即座にインシデント対応を開始してください。'
-    elif dc >= 3:
+    elif dc >= THREAT_DC_HIGH_MIN:
         level = 'HIGH'
         level_ja = '🟠 高'
         verdict = f'{dc}カテゴリでDANGER検知。詳細調査を早急に実施してください。'
@@ -228,12 +244,18 @@ else:
 
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
+# 履歴 API: scan_*.json のみ（許可リスト）
+_SCAN_JSON_NAME = re.compile(r"^scan_[A-Za-z0-9._-]+\.json$")
+_state_lock = threading.RLock()
+
 
 def _safe_history_path(filename):
-    """LOG_DIR 直下のファイルのみ許可（パストラバーサル・大小文字差を吸収）。"""
+    """LOG_DIR 直下の scan_*.json のみ許可（パストラバーサル・大小文字差を吸収）。"""
     if not filename or filename != os.path.basename(filename):
         return None
     if filename in ('.', '..'):
+        return None
+    if not _SCAN_JSON_NAME.match(filename):
         return None
     log_root = Path(LOG_DIR).resolve()
     try:
@@ -256,7 +278,8 @@ def index():
 
 @app.route('/api/data')
 def get_data():
-    return jsonify(scan_results)
+    with _state_lock:
+        return jsonify(copy.deepcopy(scan_results))
 
 # --- 履歴管理API ---
 @app.route('/api/history/list')
@@ -277,7 +300,8 @@ def list_history():
                     "scan_time": s.get('scan_time', 'Unknown'),
                     "red_flags": s.get('red_flags', 0)
                 })
-        except Exception:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            logger.debug("履歴エントリをスキップ", exc_info=True)
             continue
     return jsonify(sorted(history, key=lambda x: x['scan_time'], reverse=True))
 
@@ -289,7 +313,9 @@ def load_history(filename):
         return jsonify({"status": "error", "message": "Invalid filename"})
     if os.path.exists(fp):
         with open(fp, 'r', encoding='utf-8') as f:
-            scan_results = json.load(f)
+            data = json.load(f)
+        with _state_lock:
+            scan_results = data
         return jsonify({"status": "ok"})
     return jsonify({"status": "error", "message": "File not found"})
 
@@ -311,7 +337,6 @@ def delete_history(filename):
 @app.route('/api/analysis/diff', methods=['POST'])
 def api_analysis_diff():
     """履歴 JSON（baseline）と現在の scan_results を比較。"""
-    global scan_results
     data = request.get_json() or {}
     baseline_file = data.get('baseline_file')
     if not baseline_file:
@@ -323,7 +348,9 @@ def api_analysis_diff():
         baseline = load_scan_json(fp)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
-    d = diff_scans(baseline, scan_results)
+    with _state_lock:
+        current = copy.deepcopy(scan_results)
+    d = diff_scans(baseline, current)
     return jsonify({"status": "ok", **d})
 
 
@@ -854,17 +881,17 @@ def save_report(data):
             os.makedirs(LOG_DIR)
         except OSError:
             pass
-    
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     fname = f"scan_{ts}.json"
     fpath = os.path.join(LOG_DIR, fname)
-    
+
     try:
         with open(fpath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
-        print(f"[+] レポート保存完了: {fpath}")
-    except Exception as e:
-        print(f"[!] 保存エラー: {e}")
+        logger.info("レポート保存完了: %s", fpath)
+    except OSError as e:
+        logger.error("レポート保存エラー: %s", e)
 
 # ============================================
 # Scan API (background thread)
@@ -881,23 +908,25 @@ _scan_status = {
 @app.route('/api/scan/start', methods=['POST'])
 def api_scan_start():
     global _scan_status
-    if _scan_status["running"]:
-        return jsonify({"status": "error", "message": "Scan already running"})
-    _scan_status = {
-        "running": True,
-        "progress": 0,
-        "step": "Starting...",
-        "detail": "",
-        "done": False,
-        "error": None,
-    }
+    with _state_lock:
+        if _scan_status["running"]:
+            return jsonify({"status": "error", "message": "Scan already running"})
+        _scan_status = {
+            "running": True,
+            "progress": 0,
+            "step": "Starting...",
+            "detail": "",
+            "done": False,
+            "error": None,
+        }
     t = threading.Thread(target=_run_scan, daemon=True)
     t.start()
     return jsonify({"status": "ok", "message": "Scan started"})
 
 @app.route('/api/scan/status')
 def api_scan_status():
-    return jsonify(_scan_status)
+    with _state_lock:
+        return jsonify(dict(_scan_status))
 
 
 def assign_uids(items):
@@ -915,16 +944,18 @@ def _run_scan():
         scan_start_time = datetime.now()
 
         def update(step, progress):
-            _scan_status["step"] = step
-            _scan_status["progress"] = progress
-            _scan_status["detail"] = ""
+            with _state_lock:
+                _scan_status["step"] = step
+                _scan_status["progress"] = progress
+                _scan_status["detail"] = ""
 
         def set_scan_detail(text):
             """サブスキャン内の細かい進捗（ファイル名など）。進捗バー%は update のまま。"""
-            if text:
-                _scan_status["detail"] = str(text)[:420]
-            else:
-                _scan_status["detail"] = ""
+            with _state_lock:
+                if text:
+                    _scan_status["detail"] = str(text)[:420]
+                else:
+                    _scan_status["detail"] = ""
 
         # 1. Process & DNA & PE-sieve
         update("プロセス & DNA & メモリインジェクション解析中...", 5)
@@ -946,8 +977,8 @@ def _run_scan():
                                 p['ioc_mitre'] = hit['mitre']
                                 p['ioc_severity'] = hit['severity']
                                 p['reason'] = (p.get('reason') or '') + ' [IOC:' + hit['name'] + ']'
-                        except Exception:
-                            pass
+                        except (OSError, ValueError, TypeError, KeyError) as exc:
+                            logger.debug("IOC 照会をスキップ: %s", exc)
                     if res['entropy'] > 7.2:
                         p['reason'] += " [高エントロピー]"
                         p['status'] = "DANGER"
@@ -1098,7 +1129,7 @@ def _run_scan():
         assign_uids(mutant_results)
         assign_uids(security_surface)
 
-        scan_results = {
+        result = {
             "system": {
                 "hostname": socket.gethostname(),
                 "os": os.name.upper(),
@@ -1124,29 +1155,31 @@ def _run_scan():
             "security_surface": security_surface,
         }
 
-        threat_assessment = calculate_threat_score(scan_results)
-        scan_results["system"]["threat_score"] = threat_assessment["total_danger"]
-        scan_results["system"]["threat_level"] = threat_assessment["level"]
-        scan_results["system"]["threat_level_ja"] = threat_assessment["level_ja"]
-        scan_results["system"]["threat_verdict"] = threat_assessment["verdict"]
-        scan_results["threat_assessment"] = threat_assessment
+        threat_assessment = calculate_threat_score(result)
+        result["system"]["threat_score"] = threat_assessment["total_danger"]
+        result["system"]["threat_level"] = threat_assessment["level"]
+        result["system"]["threat_level_ja"] = threat_assessment["level_ja"]
+        result["system"]["threat_verdict"] = threat_assessment["verdict"]
+        result["threat_assessment"] = threat_assessment
 
-        save_report(scan_results)
+        save_report(result)
 
-        _scan_status["progress"] = 100
-        _scan_status["step"] = "完了"
-        _scan_status["detail"] = ""
-        _scan_status["done"] = True
-        _scan_status["running"] = False
+        with _state_lock:
+            scan_results = result
+            _scan_status["progress"] = 100
+            _scan_status["step"] = "完了"
+            _scan_status["detail"] = ""
+            _scan_status["done"] = True
+            _scan_status["running"] = False
 
     except Exception as e:
-        import traceback
-        _scan_status["error"] = str(e)
-        _scan_status["step"] = "エラー発生"
-        _scan_status["detail"] = ""
-        _scan_status["running"] = False
-        _scan_status["done"] = True
-        traceback.print_exc()
+        logger.exception("スキャンパイプラインが失敗しました")
+        with _state_lock:
+            _scan_status["error"] = str(e)
+            _scan_status["step"] = "エラー発生"
+            _scan_status["detail"] = ""
+            _scan_status["running"] = False
+            _scan_status["done"] = True
 
 # F1-d: 安全なシャットダウンエンドポイント
 @app.route('/api/shutdown', methods=['POST'])
@@ -1164,11 +1197,11 @@ def start_server_only():
     """Start web server without scanning. Scan triggered via UI button."""
     global scan_results
 
-    scan_results = {}
+    with _state_lock:
+        scan_results = {}
 
     port = find_free_port()
-    print(f"[*] Server starting on port {port}")
-    print("[*] Use the Scan button in the UI to start analysis.")
+    logger.info("Server starting on port %s (UI の Scan で解析を開始)", port)
     url = f"http://127.0.0.1:{port}"
 
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
