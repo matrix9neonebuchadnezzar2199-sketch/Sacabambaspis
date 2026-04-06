@@ -68,6 +68,15 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### 自動テスト（開発者向け）
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+`tests/` 配下に **4 ファイル**（IOC・スキャン差分・パス解決・履歴パス検証）があり、現状 **14 件**の単体テストです。
+
 ---
 
 ## YARA ルール
