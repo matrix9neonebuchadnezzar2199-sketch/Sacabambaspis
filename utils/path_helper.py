@@ -1,13 +1,17 @@
-import sys
 import os
+import sys
+
+
+def _development_base_path():
+    """utils/ の1つ上 = プロジェクトルート（CWD に依存しない）"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(here)
+
 
 def resource_path(relative_path):
-    """ PyInstallerの一時フォルダパスと開発環境のパスを振り分ける """
+    """PyInstaller の一時フォルダと開発時のプロジェクトルートを振り分ける"""
     try:
-        # PyInstallerで作成された一時フォルダ
         base_path = sys._MEIPASS
     except Exception:
-        # 通常のPython実行環境
-        base_path = os.path.abspath(".")
-
+        base_path = _development_base_path()
     return os.path.join(base_path, relative_path)

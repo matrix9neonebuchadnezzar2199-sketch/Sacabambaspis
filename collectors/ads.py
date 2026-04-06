@@ -3,7 +3,6 @@
 # 手順書 §5 ステップ2 準拠: ダウンロード元URL追跡
 # ERR-ADS-001〜003: ADS解析エラー系
 import os
-import glob
 from utils.tutor_template import build_tutor_desc
 
 

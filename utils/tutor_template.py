@@ -203,7 +203,7 @@ def build_tutor_desc(detection, why_dangerous, mitre_key=None,
 
     # 【次の調査手順】 - WARNING/DANGER で必須
     if next_steps and status in ("WARNING", "DANGER"):
-        steps_text = "\n".join(f"  ① ② ③ ④ ⑤"[i] + f" {s}"
+        "\n".join("  ① ② ③ ④ ⑤"[i] + f" {s}"
                                if i < 5 else f"  ⑤ {s}"
                                for i, s in enumerate(next_steps))
         # 上の方法だとずれるので直接番号を振る

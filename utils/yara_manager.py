@@ -1,6 +1,5 @@
 ﻿import os
 import sys
-import json
 import hashlib
 import shutil
 import time
@@ -78,7 +77,7 @@ class YaraManager:
                 stat = os.stat(fp)
                 size = stat.st_size
                 mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
-            except:
+            except Exception:
                 size = 0
                 mtime = ''
 
@@ -90,7 +89,7 @@ class YaraManager:
                         stripped = line.strip()
                         if stripped.startswith('rule ') and '{' in stripped:
                             rule_count += 1
-            except:
+            except Exception:
                 pass
 
             rules.append({
@@ -233,7 +232,7 @@ class YaraManager:
             try:
                 h = self._file_hash(fp)
                 self._rule_index[h] = fp
-            except:
+            except Exception:
                 pass
 
     def _file_hash(self, filepath):
@@ -244,7 +243,7 @@ class YaraManager:
             # Normalize: strip whitespace, lowercase for dedup
             normalized = '\n'.join(line.strip() for line in content.splitlines() if line.strip())
             return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
-        except:
+        except Exception:
             # Fallback to binary hash
             with open(filepath, 'rb') as f:
                 return hashlib.sha256(f.read()).hexdigest()
@@ -323,7 +322,7 @@ class YaraManager:
         finally:
             try:
                 shutil.rmtree(temp_dir)
-            except:
+            except Exception:
                 pass
 
     # ================================================================

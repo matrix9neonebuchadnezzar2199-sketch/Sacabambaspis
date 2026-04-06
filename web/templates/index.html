@@ -1220,19 +1220,19 @@
         <div id="tab-binrename" aria-label="バイナリリネーム検知結果" class="card">
             <h2>🎭 バイナリリネーム検知</h2>
             <p class="tab-description">実行中プロセスのPEヘッダ情報（OriginalFilename / InternalName）とファイル名を比較し、リネームされた攻撃ツールやLOLBinを検出します。MITRE ATT&CK T1036.003</p>
-            <div id="binrename-table" class="table-container"></div>
+            <div class="table-container"><table class="data-table"><thead><tr><th></th><th></th><th>判定</th><th>ファイル名</th><th>種別</th><th>検知理由</th><th>パス</th><th>状態</th></tr></thead><tbody id="binrename-table"></tbody></table></div>
         </div>
 
         <div id="tab-lnk" aria-label="LNKファイル解析結果" class="card">
             <h2>🔗 LNKファイル不審属性解析</h2>
             <p class="tab-description">Recent/Startup/Desktop の LNK ショートカットファイルを解析し、隠しウィンドウ実行・不審引数・Base64エンコード等の攻撃属性を検出します。</p>
-            <div id="lnk-table" class="table-container"></div>
+            <div class="table-container"><table class="data-table"><thead><tr><th></th><th></th><th>判定</th><th>LNK名</th><th>不審属性</th><th>ターゲット</th><th>作成日時</th><th>状態</th></tr></thead><tbody id="lnk-table"></tbody></table></div>
         </div>
 
         <div id="tab-mutant" aria-label="ミューテックス検知結果" class="card">
             <h2>🔒 ミューテックス（Mutant）検知</h2>
             <p class="tab-description">既知のマルウェアが使用するミューテックス名をOpenMutexW APIでチェックし、実行中のマルウェアを検出します。</p>
-            <div id="mutant-table" class="table-container"></div>
+            <div class="table-container"><table class="data-table"><thead><tr><th></th><th></th><th>判定</th><th>ミューテックス名</th><th>マルウェア情報</th><th>検知理由</th><th>状態</th></tr></thead><tbody id="mutant-table"></tbody></table></div>
         </div>
 
             <div id="tab-memdump" aria-label="メモリ抽出・解析" class="card">
@@ -2445,62 +2445,6 @@ function renderTables(keyword) {
 
     /* Recall */
     if (allData.recall) renderTableGeneric('list-recall', allData.recall, ['artifact', 'detail'], keyword, 'recall', i => {
-
-            // BinaryRename
-            if (allData.binrename) {
-                renderTableGeneric('binrename', allData.binrename, document.getElementById('binrename-table'),
-                    ['status','exe_name','rename_type','reason','exe_path'],
-                    ['判定','ファイル名','種別','検知理由','パス'],
-                    function(i, idx) {
-                        var rowClass = i.status === 'DANGER' ? 'danger' : (i.status === 'WARNING' ? 'warning' : 'safe');
-                        return '<tr class="' + rowClass + ' clickable-row" data-tab="binrename" data-idx="' + idx + '" data-uid="' + (i._uid||'') + '" style="cursor:pointer">' +
-                            '<td>' + statusBadge(i.status) + '</td>' +
-                            '<td>' + (i.exe_name || '-') + '</td>' +
-                            '<td>' + (i.rename_type || '-') + '</td>' +
-                            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
-                            '<td>' + (i.exe_path || '-') + '</td>' +
-                            '</tr>';
-                    }
-                );
-                updateTabBadge('binrename', allData.binrename);
-            }
-
-            // LNK Forensics
-            if (allData.lnk) {
-                renderTableGeneric('lnk', allData.lnk, document.getElementById('lnk-table'),
-                    ['status','lnk_name','suspicious_flags','target_path','creation_time'],
-                    ['判定','LNK名','不審属性','ターゲット','作成日時'],
-                    function(i, idx) {
-                        var rowClass = i.status === 'DANGER' ? 'danger' : (i.status === 'WARNING' ? 'warning' : 'safe');
-                        return '<tr class="' + rowClass + ' clickable-row" data-tab="lnk" data-idx="' + idx + '" data-uid="' + (i._uid||'') + '" style="cursor:pointer">' +
-                            '<td>' + statusBadge(i.status) + '</td>' +
-                            '<td>' + (i.lnk_name || '-') + '</td>' +
-                            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.suspicious_flags || '-') + '</td>' +
-                            '<td>' + (i.target_path || '-') + '</td>' +
-                            '<td>' + (i.creation_time || '-') + '</td>' +
-                            '</tr>';
-                    }
-                );
-                updateTabBadge('lnk', allData.lnk);
-            }
-
-            // Mutant
-            if (allData.mutant) {
-                renderTableGeneric('mutant', allData.mutant, document.getElementById('mutant-table'),
-                    ['status','artifact','detail','reason'],
-                    ['判定','ミューテックス名','マルウェア情報','検知理由'],
-                    function(i, idx) {
-                        var rowClass = i.status === 'DANGER' ? 'danger' : (i.status === 'WARNING' ? 'warning' : 'safe');
-                        return '<tr class="' + rowClass + ' clickable-row" data-tab="mutant" data-idx="' + idx + '" data-uid="' + (i._uid||'') + '" style="cursor:pointer">' +
-                            '<td>' + statusBadge(i.status) + '</td>' +
-                            '<td>' + (i.artifact || '-') + '</td>' +
-                            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.detail || '-') + '</td>' +
-                            '<td>' + (i.reason || '-') + '</td>' +
-                            '</tr>';
-                    }
-                );
-                updateTabBadge('mutant', allData.mutant);
-            }
         const key = getItemKey('recall', i);
         const impClass = isImportant(key) ? ' row-important' : '';
         return { extra: impClass, html:
@@ -2509,11 +2453,56 @@ function renderTables(keyword) {
             '<td>' + i.source + '</td>' +
             '<td class="' + cls(i.status) + '">' + (i.artifact || '') + '</td>' +
             '<td class="cell-sub">' + (i.detail || '') + '</td>' +
-            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '⚠️ ' + i.reason : '') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
             '<td>' + (i.timestamp || '') + '</td>' +
             '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
         };
     });
+
+    // BinaryRename
+    if (allData.binrename) renderTableGeneric('binrename-table', allData.binrename, ['exe_name','exe_path','reason'], keyword, 'binrename', function(i) {
+        var impClass = isImportant(getItemKey('binrename', i)) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('binrename', getItemKey('binrename', i), i) + '</td>' +
+            '<td>' + safeButton('binrename', getItemKey('binrename', i), i) + '</td>' +
+            '<td>' + statusBadge(i.status) + '</td>' +
+            '<td>' + (i.exe_name || '-') + '</td>' +
+            '<td>' + (i.rename_type || '-') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.reason ? '\u26a0\ufe0f ' + i.reason : '') + '</td>' +
+            '<td>' + (i.exe_path || '-') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    // LNK Forensics
+    if (allData.lnk) renderTableGeneric('lnk-table', allData.lnk, ['lnk_name','target_path','suspicious_flags'], keyword, 'lnk', function(i) {
+        var impClass = isImportant(getItemKey('lnk', i)) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('lnk', getItemKey('lnk', i), i) + '</td>' +
+            '<td>' + safeButton('lnk', getItemKey('lnk', i), i) + '</td>' +
+            '<td>' + statusBadge(i.status) + '</td>' +
+            '<td>' + (i.lnk_name || '-') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.suspicious_flags || '-') + '</td>' +
+            '<td>' + (i.target_path || '-') + '</td>' +
+            '<td>' + (i.creation_time || '-') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
+    // Mutant
+    if (allData.mutant) renderTableGeneric('mutant-table', allData.mutant, ['artifact','detail','reason'], keyword, 'mutant', function(i) {
+        var impClass = isImportant(getItemKey('mutant', i)) ? ' row-important' : '';
+        return { extra: impClass, html:
+            '<td>' + importantCheckbox('mutant', getItemKey('mutant', i), i) + '</td>' +
+            '<td>' + safeButton('mutant', getItemKey('mutant', i), i) + '</td>' +
+            '<td>' + statusBadge(i.status) + '</td>' +
+            '<td>' + (i.artifact || '-') + '</td>' +
+            '<td class="cell-reason ' + reasonClass(i.status) + '">' + (i.detail || '-') + '</td>' +
+            '<td>' + (i.reason || '-') + '</td>' +
+            '<td class="' + cls(i.status) + '">' + statusJP(i.status) + '</td>'
+        };
+    });
+
 
 }
 
@@ -3002,6 +2991,7 @@ function formatShortDate(d) {
 }
 
 function pad(n) { return n < 10 ? '0' + n : n; }
+function statusBadge(s) { var c = s === 'DANGER' ? 'badge-threat' : s === 'WARNING' ? 'badge-warning' : 'badge-safe'; var t = s === 'DANGER' ? '危険' : s === 'WARNING' ? '警告' : s === 'INFO' ? '情報' : '正常'; return '<span class="' + c + '">' + t + '</span>'; }
 function cls(s) { return s === 'DANGER' ? 'danger' : s === 'WARNING' ? 'warning' : 'safe'; }
 function statusJP(s) { return s === 'DANGER' ? '危険' : s === 'WARNING' ? '警告' : '正常'; }
 function reasonClass(s) { if (!s) return 'reason-safe'; switch(s.toUpperCase()) { case 'DANGER': return 'reason-danger'; case 'WARNING': return 'reason-warning'; case 'SAFE': return 'reason-safe'; default: return 'reason-info'; } }

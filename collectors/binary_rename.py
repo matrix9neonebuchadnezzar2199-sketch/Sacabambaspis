@@ -4,7 +4,12 @@
 # リネームされた攻撃ツール・LOLBinを検出する
 import os
 import psutil
-from utils.tutor_template import build_tutor_desc
+
+try:
+    from utils.tutor_template import build_tutor_desc
+except ImportError:
+    def build_tutor_desc(**kwargs):
+        return kwargs.get('detection', '')
 
 try:
     import pefile
@@ -116,7 +121,6 @@ class BinaryRenameCollector:
 
         for proc in psutil.process_iter(['pid', 'name', 'exe']):
             try:
-                pid = proc.info['pid']
                 name = proc.info['name'] or ''
                 exe_path = proc.info['exe'] or ''
 
@@ -169,7 +173,6 @@ class BinaryRenameCollector:
 
         orig = pe_info.get('OriginalFilename', '').strip()
         internal = pe_info.get('InternalName', '').strip()
-        product = pe_info.get('ProductName', '').strip()
         company = pe_info.get('CompanyName', '').strip()
         description = pe_info.get('FileDescription', '').strip()
 
@@ -264,9 +267,9 @@ class BinaryRenameCollector:
 
         next_steps = [
             f'ファイルパス "{exe_path}" を確認し、正規の場所か検証',
-            f'ファイルハッシュを VirusTotal で検索',
-            f'プロセスの親プロセスと起動コマンドラインを確認',
-            f'同時期のイベントログ (Event ID 4688) を確認',
+            'ファイルハッシュを VirusTotal で検索',
+            'プロセスの親プロセスと起動コマンドラインを確認',
+            '同時期のイベントログ (Event ID 4688) を確認',
         ]
 
         normal_vs = f'正常: {normal_text} / 異常: {abnormal_text}'

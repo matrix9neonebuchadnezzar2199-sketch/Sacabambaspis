@@ -9,6 +9,7 @@ import threading
 import uuid
 import webbrowser
 from datetime import datetime
+from pathlib import Path
 from flask import Flask, render_template, jsonify, request
 from utils.path_helper import resource_path
 
@@ -30,6 +31,9 @@ from collectors.recall import RecallCollector
 from collectors.binary_rename import BinaryRenameCollector
 from collectors.lnk_forensics import LnkForensicsCollector
 from collectors.mutant import MutantCollector
+from collectors.memdump import MemoryDumper
+from collectors.file_inspector import FileInspector
+from utils.yara_manager import YaraManager
 
 
 # --- 設定 ---
@@ -37,6 +41,10 @@ template_dir = resource_path(os.path.join('web', 'templates'))
 static_dir = resource_path(os.path.join('web', 'static'))
 
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+
+_memdumper = MemoryDumper()
+_file_inspector = FileInspector()
+_yara_manager = YaraManager()
 
 
 # ================================================================
@@ -63,6 +71,9 @@ def calculate_threat_score(scan_data):
         'cam':         'CAM DB',
         'srum':        'SRUM',
         'recall':      'Windows Recall',
+        'binrename':   'バイナリリネーム',
+        'lnk':         'LNKフォレンジック',
+        'mutant':      'ミューテックス',
     }
 
     total_danger = 0
@@ -113,6 +124,9 @@ def calculate_threat_score(scan_data):
     if 'memory' in danger_categories and 'processes' in danger_categories:
         correlation_reasons.append('メモリ注入＋不審プロセス → プロセスインジェクション攻撃の可能性')
 
+    if 'binrename' in danger_categories and 'processes' in danger_categories:
+        correlation_reasons.append('バイナリリネーム＋不審プロセス → マスカレードの可能性')
+
     if len(danger_categories) >= 5:
         correlation_reasons.append(f'{len(danger_categories)}カテゴリでDANGER検知 → 深刻な侵害の可能性')
     elif len(danger_categories) >= 3:
@@ -159,17 +173,20 @@ def calculate_threat_score(scan_data):
 
 
 def find_free_port(start=5000, end=5010):
-    """空きポートを自動探索（UFED等との競合回避）"""
+    """空きポートを自動探索（UFED等との競合回避）。範囲内に空きがなければ OS に任せる。"""
     for port in range(start, end + 1):
         try:
-            import socket as _socket
-            s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.bind(('127.0.0.1', port))
             s.close()
             return port
         except OSError:
             continue
-    return start  # 全て埋まっている場合はデフォルト
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(('127.0.0.1', 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
 
 # ベースディレクトリの決定（プロジェクトルートを基準にする）
 if getattr(sys, 'frozen', False):
@@ -179,6 +196,25 @@ else:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 LOG_DIR = os.path.join(BASE_DIR, "logs")
+
+
+def _safe_history_path(filename):
+    """LOG_DIR 直下のファイルのみ許可（パストラバーサル・大小文字差を吸収）。"""
+    if not filename or filename != os.path.basename(filename):
+        return None
+    if filename in ('.', '..'):
+        return None
+    log_root = Path(LOG_DIR).resolve()
+    try:
+        target = (log_root / filename).resolve()
+    except (OSError, ValueError):
+        return None
+    try:
+        target.relative_to(log_root)
+    except ValueError:
+        return None
+    return str(target)
+
 
 scan_results = {}
 
@@ -194,7 +230,8 @@ def get_data():
 # --- 履歴管理API ---
 @app.route('/api/history/list')
 def list_history():
-    if not os.path.exists(LOG_DIR): return jsonify([])
+    if not os.path.exists(LOG_DIR):
+        return jsonify([])
     files = glob.glob(os.path.join(LOG_DIR, "scan_*.json"))
     history = []
     for f in files:
@@ -209,15 +246,15 @@ def list_history():
                     "scan_time": s.get('scan_time', 'Unknown'),
                     "red_flags": s.get('red_flags', 0)
                 })
-        except: continue
+        except Exception:
+            continue
     return jsonify(sorted(history, key=lambda x: x['scan_time'], reverse=True))
 
 @app.route('/api/history/load/<filename>')
 def load_history(filename):
     global scan_results
-    fp = os.path.join(LOG_DIR, filename)
-    # ディレクトリトラバーサル対策
-    if os.path.dirname(fp) != LOG_DIR or ".." in filename:
+    fp = _safe_history_path(filename)
+    if not fp:
         return jsonify({"status": "error", "message": "Invalid filename"})
     if os.path.exists(fp):
         with open(fp, 'r', encoding='utf-8') as f:
@@ -228,11 +265,9 @@ def load_history(filename):
 # 【追加】削除機能
 @app.route('/api/history/delete/<filename>')
 def delete_history(filename):
-    fp = os.path.join(LOG_DIR, filename)
-    # 安全対策: logsフォルダ以外の削除を禁止
-    if os.path.dirname(fp) != LOG_DIR or ".." in filename:
+    fp = _safe_history_path(filename)
+    if not fp:
         return jsonify({"status": "error", "message": "Invalid filename"})
-    
     if os.path.exists(fp):
         try:
             os.remove(fp)
@@ -244,8 +279,6 @@ def delete_history(filename):
 # ============================================
 # P26: Memory Dump & Analysis API
 # ============================================
-from collectors.memdump import MemoryDumper
-_memdumper = MemoryDumper()
 
 @app.route('/api/memdump/list')
 def memdump_list():
@@ -451,8 +484,6 @@ def memdump_analyze_dump():
 # ============================================
 # P27: File Inspector API
 # ============================================
-from collectors.file_inspector import FileInspector
-_file_inspector = FileInspector()
 
 @app.route('/api/fileinspect/list', methods=['POST'])
 def fileinspect_list():
@@ -554,8 +585,6 @@ def fileinspect_inspect():
 
 
 # P27-D: YARA Manager API
-from utils.yara_manager import YaraManager
-_yara_manager = YaraManager()
 
 @app.route('/api/yara/status')
 def yara_status():
@@ -741,8 +770,10 @@ def yara_presets():
 # --- メインロジック ---
 def save_report(data):
     if not os.path.exists(LOG_DIR):
-        try: os.makedirs(LOG_DIR)
-        except: pass
+        try:
+            os.makedirs(LOG_DIR)
+        except OSError:
+            pass
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     fname = f"scan_{ts}.json"
@@ -995,9 +1026,8 @@ def _run_scan():
 @app.route('/api/shutdown', methods=['POST'])
 def shutdown_server():
     """UIからサーバーを安全に終了する"""
-    import os, signal
+    import os
     def _shutdown():
-        import time
         time.sleep(0.5)
         os._exit(0)
     threading.Thread(target=_shutdown, daemon=True).start()
@@ -1012,7 +1042,7 @@ def start_server_only():
 
     port = find_free_port()
     print(f"[*] Server starting on port {port}")
-    print(f"[*] Use the Scan button in the UI to start analysis.")
+    print("[*] Use the Scan button in the UI to start analysis.")
     url = f"http://127.0.0.1:{port}"
 
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()

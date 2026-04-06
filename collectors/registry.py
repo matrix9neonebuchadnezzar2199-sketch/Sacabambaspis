@@ -2,8 +2,6 @@
 # collectors/registry.py - P35: 永続化レジストリ網羅チェック（30+箇所対応）
 import winreg
 import os
-import subprocess
-import json
 from utils.tutor_template import build_tutor_desc
 
 
@@ -1025,7 +1023,7 @@ class RegistryCollector:
         # Office Test\Special\Perf (APT29等が使用)
         office_versions = ['16.0', '15.0', '14.0', '12.0']
         for ver in office_versions:
-            subkey = f"SOFTWARE\\Microsoft\\Office test\\Special\\Perf"
+            subkey = "SOFTWARE\\Microsoft\\Office test\\Special\\Perf"
             try:
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey, 0,
                                     winreg.KEY_READ) as key:

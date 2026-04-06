@@ -18,14 +18,6 @@ def enable_colors():
 
 def print_banner():
     # exe環境でのcp932エラー回避
-    import io
-    if hasattr(sys.stdout, 'reconfigure'):
-        try:
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        except Exception:
-            pass
-    # exe環境でのcp932エラー回避
-    import io
     if hasattr(sys.stdout, 'reconfigure'):
         try:
             sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -68,7 +60,7 @@ def main():
             is_admin = ctypes.windll.shell32.IsUserAnAdmin()
             if not is_admin:
                 print("\033[93m[!] WARNING: Not running as Administrator. Deep scan may fail.\033[0m")
-        except:
+        except Exception:
             pass
         print("[*] Loading modules...")
         from web.app import start_server_only
@@ -82,8 +74,9 @@ def main():
         print("\nPress Enter to exit...")
         try:
             input()
-        except:
-            import time; time.sleep(10)
+        except Exception:
+            import time
+            time.sleep(10)
         sys.exit(1)
 
 if __name__ == "__main__":

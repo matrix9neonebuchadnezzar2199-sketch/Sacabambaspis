@@ -8,14 +8,24 @@ import ctypes
 import ctypes.wintypes
 import winreg
 import subprocess
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from utils.tutor_template import build_tutor_desc
 
 try:
     from utils.signature import verify_signature, is_trusted_signer, is_hardcore_tool, extract_signer_name, clear_cache, batch_verify_signatures
 except ImportError:
     verify_signature = None
+    clear_cache = None
+    batch_verify_signatures = None
+
+    def is_trusted_signer(_signer):
+        return False
+
+    def is_hardcore_tool(_name):
+        return False
+
+    def extract_signer_name(_signer):
+        return ''
 
 try:
     from utils.ioc_database import check_sha1_ioc
@@ -75,7 +85,8 @@ class EvidenceCollector:
     # メインスキャン
     # ==============================================================
     def scan(self):
-        if clear_cache: clear_cache()  # 署名キャッシュリセット
+        if clear_cache:
+            clear_cache()  # 署名キャッシュリセット
 
         # Phase 1: 全サブスキャンを実行（署名検証なし）
         # Phase 2: 結果からユニークパスを収集しバッチ署名検証
@@ -214,7 +225,7 @@ class EvidenceCollector:
                 elif not art_lower.endswith('.exe'):
                     trusted_path_set.add(art)  # 非EXEは署名検証不要
                 else:
-                    if os.path.isfile(art):
+                    if item.get('source') != 'Amcache' and os.path.isfile(art):
                         untrusted_paths.add(art)
 
         # バッチ署名検証（不審パスのみ）
@@ -292,8 +303,16 @@ class EvidenceCollector:
         ]
         return any(path_lower.startswith(d) for d in trusted_dirs)
 
-    def _analyze_exe_path(self, exe_path, source_name, extra_info=""):
+    def _analyze_exe_path(self, exe_path, source_name, extra_info="", verify_signature_flag=True):
         """実行パスから危険度を判定（Layer 1-3: 完全一致 + 信頼パス + 署名検証）"""
+        # Performance: skip network paths (UNC) entirely
+        if exe_path.startswith('\\\\') or exe_path.startswith('//'):
+            basename_quick = os.path.basename(exe_path).lower().replace('.exe', '')
+            for tool in self.attack_tools:
+                if tool.replace('.exe', '') == basename_quick:
+                    return ('DANGER', f'攻撃ツール検知: {tool}', f'ネットワークパス: {exe_path}', '', '')
+            return ('INFO', '実行痕跡', f'{source_name}: {exe_path}', '', '')
+        
         path_lower = exe_path.lower()
         basename = os.path.basename(path_lower).replace('.exe', '')
 
@@ -303,7 +322,7 @@ class EvidenceCollector:
         sig_trusted = False
 
         # Layer 3: 署名検証（ファイルが存在する場合のみ）
-        if verify_signature and os.path.isfile(exe_path):
+        if verify_signature_flag and verify_signature and os.path.isfile(exe_path):
             sig_status, sig_signer = verify_signature(exe_path)
             sig_org = extract_signer_name(sig_signer)
             sig_trusted = (sig_status == 'Valid' and is_trusted_signer(sig_signer))
@@ -394,7 +413,7 @@ class EvidenceCollector:
         # Layer 2c: 信頼パス内だが未署名
         if self._is_trusted_path(path_lower) and not sig_trusted:
             if sig_status == 'NotFound':
-                return ("INFO", f"信頼パス（ファイル削除済み）",
+                return ("INFO", "信頼パス（ファイル削除済み）",
                     f"{source_name}の実行痕跡です。信頼パス内ですがファイルが"
                     f"既に削除されているため署名を確認できませんでした。",
                     sig_status, sig_org)
@@ -455,7 +474,9 @@ class EvidenceCollector:
                                     if len(result) == 5:
                                         status, reason, desc, sig_st, sig_name = result
                                     else:
-                                        status, reason, desc = result; sig_st = ""; sig_name = ""
+                                        status, reason, desc = result
+                                        sig_st = ""
+                                        sig_name = ""
                                     if status == "SAFE":
                                         continue
                                     results.append({
@@ -808,7 +829,9 @@ class EvidenceCollector:
                 if len(result) == 5:
                     status, reason, desc, sig_st, sig_name = result
                 else:
-                    status, reason, desc = result; sig_st = ''; sig_name = ''
+                    status, reason, desc = result
+                    sig_st = ''
+                    sig_name = ''
                 if status == 'SAFE':
                     continue
 
@@ -869,7 +892,9 @@ class EvidenceCollector:
                         if len(result) == 5:
                             status, reason, desc, sig_st, sig_name = result
                         else:
-                            status, reason, desc = result; sig_st = ""; sig_name = ""
+                            status, reason, desc = result
+                            sig_st = ""
+                            sig_name = ""
                         if status == "SAFE":
                             continue
                         results.append({
@@ -969,7 +994,6 @@ class EvidenceCollector:
         """フォールバック: バイナリからUnicodeパスを直接抽出"""
         entries = []
         # Look for patterns like \Device\HarddiskVolume or C:\
-        pattern = rb'(?:[A-Z]:\\[^\x00]{4,200}\.(?:exe|dll|sys))'
         try:
             text = data.decode('utf-16-le', errors='ignore')
             matches = re.findall(
@@ -1037,7 +1061,6 @@ class EvidenceCollector:
                     sha1 = ''
                     publisher = ''
                     link_date = ''
-                    program_id = ''
 
                     for v in sk.values():
                         vname = v.name()
@@ -1054,7 +1077,7 @@ class EvidenceCollector:
                         elif vname == 'LinkDate':
                             link_date = str(v.value())
                         elif vname == 'ProgramId':
-                            program_id = str(v.value())
+                            str(v.value())
 
                     if not lower_path:
                         continue
@@ -1076,11 +1099,13 @@ class EvidenceCollector:
                     if link_date:
                         extra += 'リンク日: ' + link_date
 
-                    result = self._analyze_exe_path(lower_path, 'Amcache (実行記録+ハッシュ)', extra)
+                    result = self._analyze_exe_path(lower_path, 'Amcache (実行記録+ハッシュ)', extra, verify_signature_flag=False)
                     if len(result) == 5:
                         status, reason, desc, sig_st, sig_name = result
                     else:
-                        status, reason, desc = result; sig_st = ''; sig_name = ''
+                        status, reason, desc = result
+                        sig_st = ''
+                        sig_name = ''
 
                     # P46: IOCマッチでDANGER昇格
                     if ioc_hit:
@@ -1130,11 +1155,13 @@ class EvidenceCollector:
                         ioc_hit_f = None
                         if check_sha1_ioc and sha1_f:
                             ioc_hit_f = check_sha1_ioc(sha1_f)
-                        result = self._analyze_exe_path(fpath, 'Amcache (File)', '')
+                        result = self._analyze_exe_path(fpath, 'Amcache (File)', '', verify_signature=False)
                         if len(result) == 5:
                             status, reason, desc, sig_st, sig_name = result
                         else:
-                            status, reason, desc = result; sig_st = ''; sig_name = ''
+                            status, reason, desc = result
+                            sig_st = ''
+                            sig_name = ''
                         if ioc_hit_f:
                             status = 'DANGER'
                             reason = 'IOC一致: ' + ioc_hit_f['name']
@@ -1192,7 +1219,7 @@ class EvidenceCollector:
             # src_pathからドライブレターを除去してVSSパスに変換
             rel_path = src_path[3:] if len(src_path) > 3 and src_path[1] == ':' else src_path
             vss_src = shadow_path + rel_path
-            r2 = subprocess.run(
+            subprocess.run(
                 ['cmd', '/c', 'copy', '/Y', vss_src, dest_path],
                 capture_output=True, timeout=30,
                 creationflags=0x08000000)
@@ -1261,7 +1288,9 @@ class EvidenceCollector:
                                         if len(result) == 5:
                                             status, reason, desc, sig_st, sig_name = result
                                         else:
-                                            status, reason, desc = result; sig_st = ""; sig_name = ""
+                                            status, reason, desc = result
+                                            sig_st = ""
+                                            sig_name = ""
                                         if status == "SAFE":
                                             continue
                                         results.append({
@@ -1292,7 +1321,6 @@ class EvidenceCollector:
                 drive = f"{letter}:\\"
                 if os.path.exists(drive):
                     try:
-                        ps_cmd = f"(Get-Partition -DriveLetter {letter}).DiskNumber"
                         # 簡易変換: Volume1→C:, Volume2→D: 等（概算）
                         pass
                     except Exception:

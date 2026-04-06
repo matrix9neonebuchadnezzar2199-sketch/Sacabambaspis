@@ -2,7 +2,6 @@
 # collectors/memory.py - P7+P16: 全メモリ領域表示 + RWX危険タグ + 統一解説強化
 # ERR-MEM-001〜003: メモリ解析エラー系
 import psutil
-import os
 from utils.tutor_template import build_tutor_desc
 
 

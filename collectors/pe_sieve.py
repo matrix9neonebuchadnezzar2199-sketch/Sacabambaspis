@@ -14,11 +14,8 @@ import tempfile
 try:
     from utils.tutor_template import build_tutor_desc
 except ImportError:
-    try:
-        from tutor_template import build_tutor_desc
-    except ImportError:
-        def build_tutor_desc(**kwargs):
-            return kwargs.get("detection", "")
+    def build_tutor_desc(**kwargs):
+        return kwargs.get("detection", "")
 
 
 def _find_tool(name):
@@ -105,7 +102,7 @@ def scan_process(pid, process_name="", process_path=""):
         implanted_shc = modified.get("implanted_shc", 0)
         iat_hooked = modified.get("iat_hooked", 0)
         unreachable = modified.get("unreachable_file", 0)
-        other_mod = modified.get("other", 0)
+        modified.get("other", 0)
 
         # --- 偽陽性フィルタリング ---
         adjusted_shc = implanted_shc

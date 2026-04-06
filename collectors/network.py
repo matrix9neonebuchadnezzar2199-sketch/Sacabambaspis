@@ -9,10 +9,7 @@ import psutil
 import socket
 import os
 import subprocess
-import ctypes
-import struct
 from collections import Counter, defaultdict
-from datetime import datetime
 from utils.tutor_template import build_tutor_desc
 
 
@@ -128,9 +125,9 @@ class NetworkCollector:
                 proc_path = proc.exe()
                 try:
                     proc_user = proc.username()
-                except:
+                except Exception:
                     proc_user = ""
-            except:
+            except Exception:
                 pass
 
             proto = "TCP" if conn.type == socket.SOCK_STREAM else "UDP"
@@ -631,7 +628,7 @@ class NetworkCollector:
                 second = int(ip.split('.')[1])
                 if 16 <= second <= 31:
                     return True
-            except:
+            except Exception:
                 pass
         if ip.startswith('169.254.'):
             return True
@@ -653,7 +650,7 @@ class NetworkCollector:
                 result = host if host != ip else ''
             finally:
                 socket.setdefaulttimeout(old_timeout)
-        except:
+        except Exception:
             result = ''
         self._dns_cache[ip] = result
         return result
@@ -673,7 +670,7 @@ class NetworkCollector:
                     return ip, (host if host != ip else '')
                 finally:
                     socket.setdefaulttimeout(old_timeout)
-            except:
+            except Exception:
                 return ip, ''
         with ThreadPoolExecutor(max_workers=10) as pool:
             futures = {pool.submit(resolve, ip): ip for ip in unique_ips}

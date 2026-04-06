@@ -6,7 +6,6 @@ P16: 統一解説フォーマット対応
 """
 
 import os
-import glob
 import winreg
 from datetime import datetime
 from utils.tutor_template import build_tutor_desc
@@ -168,7 +167,7 @@ class RecallCollector:
                     source='レジストリ',
                     artifact='ERROR',
                     detail=str(e),
-                    reason=f'レジストリ読込エラー',
+                    reason='レジストリ読込エラー',
                     desc='',
                     status='WARNING',
                 ))
@@ -213,7 +212,7 @@ class RecallCollector:
                                         'mtime': datetime.fromtimestamp(
                                             os.path.getmtime(fpath)),
                                     })
-                            except:
+                            except Exception:
                                 continue
 
                     total_size_mb = total_size / (1024 * 1024)

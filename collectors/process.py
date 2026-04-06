@@ -4,7 +4,12 @@
 import psutil
 import os
 from datetime import datetime
-from utils.tutor_template import build_tutor_desc
+
+try:
+    from utils.tutor_template import build_tutor_desc
+except ImportError:
+    def build_tutor_desc(**kwargs):
+        return kwargs.get('detection', '')
 
 
 try:
@@ -288,7 +293,7 @@ class ProcessCollector:
                         f"パス: {info['exe']}"
                     ),
                     why_dangerous=(
-                        f"攻撃者は「svchost.exe」を「svch0st.exe」のように"
+                        "攻撃者は「svchost.exe」を「svch0st.exe」のように"
                         "1-2文字だけ変えた名前を使い、管理者やセキュリティソフトの"
                         "目視チェックをすり抜けようとします。"
                         "目視では見逃しやすく、自動検知が重要です。"
@@ -560,7 +565,7 @@ class ProcessCollector:
                                 f"\u30d1\u30b9: {info['exe']}"
                             ),
                             why_dangerous=(
-                                f"\u6b63\u898f\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u306fProgram Files\u3084System32\u304b\u3089"
+                                "\u6b63\u898f\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u306fProgram Files\u3084System32\u304b\u3089"
                                 "\u5b9f\u884c\u3055\u308c\u308b\u306e\u304c\u6a19\u6e96\u3067\u3059\u3002"
                                 "Temp\u3001AppData\u3001Downloads\u7b49\u304b\u3089\u5b9f\u884c\u3055\u308c\u3066\u3044\u308b\u30d7\u30ed\u30bb\u30b9\u306f\u3001"
                                 "\u30de\u30eb\u30a6\u30a7\u30a2\u304c\u4e00\u6642\u30d5\u30a9\u30eb\u30c0\u306b\u914d\u7f6e\u3055\u308c\u3066"

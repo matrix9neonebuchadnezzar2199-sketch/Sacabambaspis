@@ -7,10 +7,8 @@ sigma-rule-matcher (pySigma ベース) を使用。
 
 import os
 import glob
-import traceback
 
 try:
-    import yaml
     from sigma.rule import SigmaRule
     from sigma_rule_matcher import RuleMatcher
     SIGMA_AVAILABLE = True

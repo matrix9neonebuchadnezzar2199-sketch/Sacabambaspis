@@ -4,9 +4,10 @@ import math
 import os
 
 try:
-    from utils.tutor_template import build_tutor_desc, MITRE_MAP
+    from utils.tutor_template import build_tutor_desc
 except ImportError:
-    from tutor_template import build_tutor_desc, MITRE_MAP
+    def build_tutor_desc(**kwargs):
+        return kwargs.get('detection', '')
 
 
 class DNACollector:
@@ -131,7 +132,7 @@ class DNACollector:
                 "entropy": 0,
                 "verdict": f"解析エラー: {str(e)[:50]}",
                 "status": "WARNING",
-                "reason": f"エントロピー解析中にエラーが発生",
+                "reason": "エントロピー解析中にエラーが発生",
                 "desc": f"ファイル解析中にエラーが発生しました: {str(e)[:100]}",
             }
 

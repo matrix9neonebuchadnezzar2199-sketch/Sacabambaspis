@@ -170,7 +170,7 @@ class WSLCollector:
             )
             output = result.stdout.strip()
             if output:
-                lines = [l.strip() for l in output.split('\n') if l.strip()]
+                lines = [line.strip() for line in output.split('\n') if line.strip()]
                 for line in lines[1:]:
                     if not line or 'NAME' in line.upper():
                         continue
@@ -199,14 +199,14 @@ class WSLCollector:
                                     f"{'デフォルト' if is_default else '追加'}ディストリ"
                                 ),
                                 why_dangerous=(
-                                    f"Kali Linuxはペネトレーションテスト専用OSであり、"
-                                    f"攻撃ツールが多数プリインストールされています。"
-                                    f"業務上の正当な理由がなければ侵害の強い証拠です。"
+                                    "Kali Linuxはペネトレーションテスト専用OSであり、"
+                                    "攻撃ツールが多数プリインストールされています。"
+                                    "業務上の正当な理由がなければ侵害の強い証拠です。"
                                     if is_kali else
-                                    f"WSLディストリビューションが存在します。"
-                                    f"Running状態の場合、現在アクティブに使用されており、"
-                                    f"WSL内での活動はWindows側の監視ツールから見えにくいため、"
-                                    f"攻撃者に悪用される可能性があります。"
+                                    "WSLディストリビューションが存在します。"
+                                    "Running状態の場合、現在アクティブに使用されており、"
+                                    "WSL内での活動はWindows側の監視ツールから見えにくいため、"
+                                    "攻撃者に悪用される可能性があります。"
                                 ),
                                 mitre_key="wsl_distro",
                                 normal_vs_abnormal=(

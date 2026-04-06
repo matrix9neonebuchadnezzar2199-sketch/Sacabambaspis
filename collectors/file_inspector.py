@@ -1,7 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 """P27: File Inspector Module - Folder listing and file analysis."""
 import os
-import sys
 import math
 import hashlib
 import struct
@@ -883,7 +882,7 @@ class FileInspector:
             info['findings'].append({'type': 'ERROR', 'detail': f'Read error: {e}'})
             return
 
-        ext = os.path.splitext(filepath)[1].lower()
+        os.path.splitext(filepath)[1].lower()
         lines = content.count('\n') + 1
         info['findings'].append({'type': 'INFO', 'detail': f'Script lines: {lines}'})
 
@@ -996,7 +995,7 @@ class FileInspector:
         exe_exts = {'.exe', '.dll', '.scr', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.hta', '.wsf'}
         for entry in entries:
             ext = os.path.splitext(entry)[1].lower()
-            name_lower = entry.lower()
+            entry.lower()
 
             if ext in exe_exts:
                 info['findings'].append({
@@ -1123,7 +1122,7 @@ class FileInspector:
                 stream_name = '/'.join(stream_path)
                 try:
                     size = ole.get_size(stream_name)
-                except:
+                except Exception:
                     size = 0
                 result['streams'].append({'name': stream_name, 'size': size})
 
@@ -1210,7 +1209,7 @@ class FileInspector:
                         urls = re.findall(r'https?://[^\s\x00"\'<>\)]{5,200}', text)
                         for url in urls:
                             result['external_links'].append(self._defang_url(url))
-                    except:
+                    except Exception:
                         pass
 
             if result['external_links']:
@@ -1236,7 +1235,7 @@ class FileInspector:
         finally:
             try:
                 ole.close()
-            except:
+            except Exception:
                 pass
 
         return result
@@ -1284,7 +1283,7 @@ class FileInspector:
                                 'size': len(raw),
                                 'code_preview': text[:5000]
                             })
-                        except:
+                        except Exception:
                             pass
 
                 # Check for ActiveX
@@ -1317,7 +1316,7 @@ class FileInspector:
                         for t in ext_targets:
                             result['external_links'].append(self._defang_url(t))
                             result['relationships'].append({'file': rf, 'target': t, 'mode': 'External'})
-                    except:
+                    except Exception:
                         pass
 
                 if result['external_links']:
@@ -1481,7 +1480,6 @@ class FileInspector:
 
     def analyze_image(self, filepath):
         """Analyze image files for embedded code, steganography indicators."""
-        import struct
         result = {
             'type': 'IMAGE',
             'format': '',
@@ -1502,7 +1500,7 @@ class FileInspector:
             return result
 
         size = len(data)
-        ext = os.path.splitext(filepath)[1].lower()
+        os.path.splitext(filepath)[1].lower()
 
         # Detect format from magic bytes
         if data[:2] == b'\xff\xd8':
@@ -1739,7 +1737,7 @@ class FileInspector:
                         result['mitre'].append(mitre)
 
         # Obfuscation indicators
-        long_lines = [l for l in content.split('\n') if len(l) > 1000]
+        long_lines = [line for line in content.split('\n') if len(line) > 1000]
         if long_lines:
             result['obfuscation_indicators'].append(f'超長行: {len(long_lines)}行（1000文字超）')
             result['findings'].append({'type': 'WARNING', 'detail': f'難読化の兆候: 超長行が{len(long_lines)}行検出（1行1000文字以上）- コードを1行に詰め込む難読化手法の可能性'})
@@ -1995,7 +1993,7 @@ class FileInspector:
             from datetime import datetime, timezone
             try:
                 result['compile_time'] = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            except:
+            except Exception:
                 result['compile_time'] = f'0x{timestamp:X}'
 
             # Number of sections
@@ -2018,9 +2016,12 @@ class FileInspector:
                 s_rsize = struct.unpack_from('<I', data, s_off + 16)[0]
                 s_chars = struct.unpack_from('<I', data, s_off + 36)[0]
                 perms = ''
-                if s_chars & 0x20000000: perms += 'X'
-                if s_chars & 0x40000000: perms += 'R'
-                if s_chars & 0x80000000: perms += 'W'
+                if s_chars & 0x20000000:
+                    perms += 'X'
+                if s_chars & 0x40000000:
+                    perms += 'R'
+                if s_chars & 0x80000000:
+                    perms += 'W'
                 result['sections'].append({
                     'name': s_name, 'virtual_size': s_vsize,
                     'raw_size': s_rsize, 'permissions': perms

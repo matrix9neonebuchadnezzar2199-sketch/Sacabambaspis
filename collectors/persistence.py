@@ -119,7 +119,7 @@ class PersistenceCollector:
     def _analyze_task(self, task_name, command):
         """タスクスケジューラエントリの危険度判定"""
         cmd_lower = command.lower()
-        name_lower = task_name.lower()
+        task_name.lower()
 
         # --- Rule 1: 攻撃ツールの自動実行 ---
         cmd_basename = (os.path.basename(cmd_lower.split()[0])

@@ -12,9 +12,10 @@ import tempfile
 from datetime import datetime
 
 try:
-    from utils.tutor_template import build_tutor_desc, MITRE_MAP
+    from utils.tutor_template import build_tutor_desc
 except ImportError:
-    from tutor_template import build_tutor_desc, MITRE_MAP
+    def build_tutor_desc(**kwargs):
+        return kwargs.get('detection', '')
 
 
 class CAMCollector:
@@ -159,7 +160,7 @@ class CAMCollector:
                 try:
                     os.remove(tmp_path)
                     os.rmdir(os.path.dirname(tmp_path))
-                except:
+                except Exception:
                     pass
         return entries
 

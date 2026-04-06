@@ -6,3 +6,7 @@ pySigma
 pyyaml
 pefile
 python-registry
+# オプション機能（未インストール時は該当機能のみスキップまたはメッセージ表示）
+yara-python
+olefile
+PyPDF2

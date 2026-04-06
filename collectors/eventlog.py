@@ -6,9 +6,10 @@ import re
 from datetime import datetime
 
 try:
-    from utils.tutor_template import build_tutor_desc, MITRE_MAP
+    from utils.tutor_template import build_tutor_desc
 except ImportError:
-    from tutor_template import build_tutor_desc, MITRE_MAP
+    def build_tutor_desc(**kwargs):
+        return kwargs.get('detection', '')
 
 
 try:
@@ -18,6 +19,12 @@ except ImportError:
         from sigma_engine import match_event_summary, build_sigma_tutor, SIGMA_AVAILABLE
     except ImportError:
         SIGMA_AVAILABLE = False
+
+        def match_event_summary(_event):
+            return None
+
+        def build_sigma_tutor(_info):
+            return None
 
 class EventLogCollector:
     """P17: イベントログ解析 - 全イベントIDに3段構成Tutor解説を付与"""

@@ -15,14 +15,14 @@ import os
 import subprocess
 import tempfile
 import shutil
-import struct
 import winreg
-from datetime import datetime, timedelta
+from datetime import datetime
 
 try:
-    from utils.tutor_template import build_tutor_desc, MITRE_MAP
+    from utils.tutor_template import build_tutor_desc
 except ImportError:
-    from tutor_template import build_tutor_desc, MITRE_MAP
+    def build_tutor_desc(**kwargs):
+        return kwargs.get('detection', '')
 
 
 class SRUMCollector:
@@ -300,7 +300,7 @@ class SRUMCollector:
                 source='レジストリ',
                 app_name='ERROR',
                 detail=str(e),
-                reason=f'レジストリ読込エラー',
+                reason='レジストリ読込エラー',
                 desc='',
                 status='WARNING',
                 timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -375,7 +375,7 @@ class SRUMCollector:
                 source='esentutl',
                 app_name='ERROR',
                 detail=str(e),
-                reason=f'esentutlエラー',
+                reason='esentutlエラー',
                 desc='',
                 status='WARNING',
                 timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -384,7 +384,7 @@ class SRUMCollector:
             if tmp_dir and os.path.exists(tmp_dir):
                 try:
                     shutil.rmtree(tmp_dir)
-                except:
+                except Exception:
                     pass
 
         return results
@@ -417,7 +417,7 @@ class SRUMCollector:
 
                 parts = line.split()
                 if len(parts) >= 4 and parts[0] in ('TCP', 'UDP'):
-                    proto = parts[0]
+                    parts[0]
                     remote = parts[2] if len(parts) > 2 else ''
                     pid = parts[-1]
 

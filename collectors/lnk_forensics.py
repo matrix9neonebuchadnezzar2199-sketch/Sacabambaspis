@@ -5,7 +5,7 @@ import os
 import struct
 import glob
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from utils.tutor_template import build_tutor_desc
 
 

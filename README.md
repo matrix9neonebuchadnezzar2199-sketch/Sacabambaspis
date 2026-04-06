@@ -134,6 +134,11 @@ Sacabambaspis.exe（または main.py）
 
 
 
+\### PE-sieve（任意）
+
+プロセス解析でのメモリインジェクション検知を強化するには、[PE-sieve](https://github.com/hasherezade/pe-sieve) の `pe-sieve64.exe`（および任意で HollowsHunter）を、プロジェクト直下の `tools/` フォルダに配置してください。配置がない場合、該当検知はスキップされます。
+
+
 ---
 
 

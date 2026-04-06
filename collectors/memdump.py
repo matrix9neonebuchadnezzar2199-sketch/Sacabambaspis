@@ -6,7 +6,6 @@ import sys
 import ctypes
 import ctypes.wintypes
 import struct
-import tempfile
 from datetime import datetime
 
 # Windows API constants
@@ -111,7 +110,7 @@ class MemoryDumper:
 
         try:
             with open(filepath, 'wb') as f:
-                fd = ctypes.c_uint(f.fileno())
+                ctypes.c_uint(f.fileno())
                 import msvcrt
                 h_file = msvcrt.get_osfhandle(f.fileno())
                 result = self.dbghelp.MiniDumpWriteDump(
