@@ -3,6 +3,9 @@
 横断的ヒューリスティック用の単一ソース。
 各コレクター（実行痕跡・レジストリ・ネットワーク・永続化・CAM・SRUM等）で
 重複していたリストをここに集約する。
+
+PE ファイル名照合テーブルは utils/binary_rename_table.py（BinaryRename 専用の行データ）。
+高危険度 substring は BINARY_RENAME_HARDCORE_SUBSTRINGS（ATTACK_TOOLS 由来 + extras）。
 """
 
 # プロセス名・パス断片に対する攻撃ツール・フレームワークのヒント（小文字比較が多い）
@@ -238,3 +241,56 @@ SUSPICIOUS_PARENT_PROCESS_NAMES = [
     "cscript.exe",
     "certutil.exe",
 ]
+
+
+def _build_binary_rename_hardcore_substrings():
+    """
+    BinaryRename の ANY 行で DANGER にする substring 集合。
+    ATTACK_TOOLS をベースにし、PE InternalName/OriginalFilename に出やすい別名は extras で補う。
+    substring 照合のため 3 文字未満は入れない（下記ショートトークン以外）。
+    """
+    extras = {
+        "adfind",
+        "remcom",
+        "processhacker",
+        "pchunter",
+        "powertool",
+        "chromepass",
+        "wirelesskeyview",
+        "wkv",
+        "vncpassview",
+        "iepv",
+        "rdpv",
+        "bulletspassview",
+        "nircmd",
+        "nsudo",
+        "defender control",
+    }
+    short_ok = frozenset({"nc", "wce"})
+    skip_stripped = frozenset({"net"})  # net.exe からの単独 net は誤爆しやすい
+
+    out = set(extras)
+    for t in ATTACK_TOOLS:
+        tl = t.lower().strip()
+        if not tl:
+            continue
+        out.add(tl)
+        if tl.endswith(".exe"):
+            base = tl[:-4]
+            if len(base) >= 3 and base not in skip_stripped:
+                out.add(base)
+    for s in short_ok:
+        out.add(s)
+    return frozenset(out)
+
+
+# collectors/binary_rename: ANY 行の DANGER 判定（単一ソース）
+BINARY_RENAME_HARDCORE_SUBSTRINGS = _build_binary_rename_hardcore_substrings()
+
+
+def path_contains_suspicious_fragment(path_lower: str) -> bool:
+    """パス文字列に SUSPICIOUS_PATH_FRAGMENTS のいずれかが含まれるか（小文字のパスを渡すこと）。"""
+    if not path_lower:
+        return False
+    pl = path_lower.replace("/", "\\")
+    return any(frag in pl for frag in SUSPICIOUS_PATH_FRAGMENTS)

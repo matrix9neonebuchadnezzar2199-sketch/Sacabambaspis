@@ -7,6 +7,7 @@ import glob
 import re
 from datetime import datetime
 from utils.tutor_template import build_tutor_desc
+from utils import threat_lists as _tl
 
 
 class LnkForensicsCollector:
@@ -338,11 +339,10 @@ class LnkForensicsCollector:
             flags.append('作成時刻ゼロ (タイムスタンプ改ざん疑い)')
             severity = max_severity(severity, 'WARNING')
 
-        # 18. relative_path: 通常LNKでも ..\..\ は一般的なため、
-        #     targetと組み合わせて不審な場合のみ検知（例: tempフォルダへの参照）
+        # 18. relative_path: threat_lists.SUSPICIOUS_PATH_FRAGMENTS と整合
         rp = parsed.get('relative_path', '')
-        if rp and re.search(r'\\temp\\|\\appdata\\local\\temp\\', rp, re.IGNORECASE):
-            flags.append('Tempフォルダへの相対パス参照')
+        if rp and _tl.path_contains_suspicious_fragment(rp.replace("/", "\\").lower()):
+            flags.append('不審パス断片を含む相対パス')
             severity = max_severity(severity, 'WARNING')
 
         # Startupフォルダ単体はINFO、他フラグ併用ならWARNING以上に昇格
