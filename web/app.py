@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from urllib.parse import urlparse
+
 from flask import Flask, render_template, jsonify, request
 
 from utils.app_logging import configure_logging, get_logger
@@ -71,6 +73,30 @@ app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 _memdumper = MemoryDumper()
 _file_inspector = FileInspector()
 _yara_manager = YaraManager()
+
+
+def _request_origin_is_localhost() -> bool:
+    """Origin 未送信（curl 等）または 127.0.0.1 / localhost のみ許可。"""
+    origin = (request.headers.get("Origin") or "").strip()
+    if not origin:
+        return True
+    try:
+        host = urlparse(origin).hostname
+        if host is None:
+            return False
+        return host.lower() in ("127.0.0.1", "localhost")
+    except (TypeError, ValueError):
+        return False
+
+
+@app.before_request
+def _guard_mutating_requests_origin():
+    """POST/PUT/DELETE/PATCH を同一オリジン（ローカル UI）に寄せ、外部サイト経由の CSRF を緩和。"""
+    if request.method not in ("POST", "PUT", "DELETE", "PATCH"):
+        return None
+    if _request_origin_is_localhost():
+        return None
+    return jsonify({"status": "error", "message": "Origin not allowed"}), 403
 
 
 # ================================================================

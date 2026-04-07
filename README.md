@@ -79,6 +79,15 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### exe を自前ビルドする場合
+
+```bash
+pip install -r requirements-dev.txt
+build.bat
+```
+
+**PyInstaller** は `requirements-dev.txt` にのみ含めています（実行時の `pip install -r requirements.txt` だけでは exe 化できません）。**Sigma**（`sigma-rule-matcher` / `pySigma`）は `collectors/sigma_engine.py` のイベントログ連携用です。未インストール時は Sigma 照合のみスキップされます。
+
 ### 自動テスト（開発者向け）
 
 ```bash

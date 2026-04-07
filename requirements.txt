@@ -1,7 +1,8 @@
 # 最低バージョン（再現性・脆弱性調査の基準）。必要に応じて pip-compile 等で固定してください。
+# EXE ビルド用 PyInstaller は requirements-dev.txt（開発・配布ビルド時のみ）
 flask>=3.0.0,<4
 psutil>=5.9.0,<8
-pyinstaller>=6.0.0
+# Sigma（collectors/sigma_engine.py・eventlog のルール照合。未インストール時は Sigma 機能のみスキップ）
 sigma-rule-matcher
 pySigma
 pyyaml
