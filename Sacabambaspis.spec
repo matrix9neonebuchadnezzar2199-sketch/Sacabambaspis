@@ -26,7 +26,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX 有効だとヒューリスティック検知が付きやすい（McAfee/Defender 等）
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
