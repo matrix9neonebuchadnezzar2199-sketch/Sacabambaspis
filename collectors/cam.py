@@ -81,69 +81,68 @@ class CAMCollector:
             tmp_path = os.path.join(tmp_dir, 'pca_copy.db')
             shutil.copy2(db_path, tmp_path)
 
-            conn = sqlite3.connect(tmp_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+            with sqlite3.connect(tmp_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
 
-            # テーブル一覧を取得して適切なテーブルを探す
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = [row['name'] for row in cursor.fetchall()]
+                # テーブル一覧を取得して適切なテーブルを探す
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [row['name'] for row in cursor.fetchall()]
 
-            for table_name in tables:
-                try:
-                    cursor.execute(f"PRAGMA table_info({table_name})")
-                    columns = [col[1] for col in cursor.fetchall()]
+                for table_name in tables:
+                    try:
+                        cursor.execute(f"PRAGMA table_info({table_name})")
+                        columns = [col[1] for col in cursor.fetchall()]
 
-                    # ExePath または FilePath を含むテーブルを対象とする
-                    path_col = None
-                    for c in columns:
-                        if c.lower() in ('exepath', 'filepath', 'path', 'executablepath'):
-                            path_col = c
-                            break
+                        # ExePath または FilePath を含むテーブルを対象とする
+                        path_col = None
+                        for c in columns:
+                            if c.lower() in ('exepath', 'filepath', 'path', 'executablepath'):
+                                path_col = c
+                                break
 
-                    if not path_col:
+                        if not path_col:
+                            continue
+
+                        # 時刻カラムの候補
+                        time_col = None
+                        for c in columns:
+                            if c.lower() in ('timestamp', 'runtime', 'lastrun', 'time', 'date'):
+                                time_col = c
+                                break
+
+                        # 実行回数カラムの候補
+                        count_col = None
+                        for c in columns:
+                            if c.lower() in ('runcount', 'count', 'executioncount'):
+                                count_col = c
+                                break
+
+                        # 終了コードカラムの候補
+                        exit_col = None
+                        for c in columns:
+                            if c.lower() in ('exitcode', 'returncode', 'errorcode'):
+                                exit_col = c
+                                break
+
+                        query = f"SELECT * FROM {table_name}"
+                        cursor.execute(query)
+                        rows = cursor.fetchall()
+
+                        for row in rows:
+                            exe_path = row[path_col] if path_col else ''
+                            if not exe_path:
+                                continue
+                            entry = {
+                                'exe_path': str(exe_path),
+                                'run_time': str(row[time_col]) if time_col and row[time_col] else '',
+                                'run_count': int(row[count_col]) if count_col and row[count_col] else 0,
+                                'exit_code': str(row[exit_col]) if exit_col and row[exit_col] else '',
+                            }
+                            entries.append(entry)
+                    except Exception:
                         continue
 
-                    # 時刻カラムの候補
-                    time_col = None
-                    for c in columns:
-                        if c.lower() in ('timestamp', 'runtime', 'lastrun', 'time', 'date'):
-                            time_col = c
-                            break
-
-                    # 実行回数カラムの候補
-                    count_col = None
-                    for c in columns:
-                        if c.lower() in ('runcount', 'count', 'executioncount'):
-                            count_col = c
-                            break
-
-                    # 終了コードカラムの候補
-                    exit_col = None
-                    for c in columns:
-                        if c.lower() in ('exitcode', 'returncode', 'errorcode'):
-                            exit_col = c
-                            break
-
-                    query = f"SELECT * FROM {table_name}"
-                    cursor.execute(query)
-                    rows = cursor.fetchall()
-
-                    for row in rows:
-                        exe_path = row[path_col] if path_col else ''
-                        if not exe_path:
-                            continue
-                        entry = {
-                            'exe_path': str(exe_path),
-                            'run_time': str(row[time_col]) if time_col and row[time_col] else '',
-                            'run_count': int(row[count_col]) if count_col and row[count_col] else 0,
-                            'exit_code': str(row[exit_col]) if exit_col and row[exit_col] else '',
-                        }
-                        entries.append(entry)
-                except Exception:
-                    continue
-
-            conn.close()
         except Exception as e:
             raise e
         finally:

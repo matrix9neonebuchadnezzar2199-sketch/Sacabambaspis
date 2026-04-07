@@ -4,6 +4,8 @@
 # ERR-PCA-001〜003: PCA解析エラー系
 import os
 from datetime import datetime
+
+from utils import threat_lists as _tl
 from utils.tutor_template import build_tutor_desc
 
 
@@ -12,22 +14,8 @@ class PCACollector:
         self.pca_path = r"C:\Windows\appcompat\pca\PcaAppLaunchDic.txt"
         self.pca_general_path = r"C:\Windows\appcompat\pca\PcaGeneralDb0.txt"
 
-        self.suspicious_paths = [
-            'users\\public', '\\temp', '\\appdata\\local\\temp',
-            '\\downloads', 'recycle.bin', '\\perflogs',
-            '\\programdata', '\\music', '\\videos',
-        ]
-
-        self.suspicious_tools = [
-            'mimikatz', 'lazagne', 'psexec', 'procdump',
-            'rubeus', 'sharphound', 'bloodhound', 'covenant',
-            'cobalt', 'beacon', 'meterpreter', 'nmap',
-            'netcat', 'nc.exe', 'nc64.exe', 'wce.exe',
-            'pwdump', 'fgdump', 'gsecdump', 'secretsdump',
-            'crackmapexec', 'impacket', 'chisel', 'plink',
-            'putty', 'winscp', 'rclone', 'megacmd',
-            'winrar', '7z.exe', 'rar.exe',
-        ]
+        self.suspicious_paths = list(_tl.SUSPICIOUS_PATH_FRAGMENTS)
+        self.suspicious_tools = list(_tl.ATTACK_TOOLS)
 
     def scan(self):
         results = []

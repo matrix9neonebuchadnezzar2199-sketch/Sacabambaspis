@@ -61,7 +61,8 @@ class BinaryRenameCollector:
                 if not pe_info:
                     continue
 
-                match = self._check_rename(name, exe_path, pe_info)
+                pid = proc.info.get("pid") or 0
+                match = self._check_rename(name, exe_path, pe_info, pid=pid)
                 if match:
                     results.append(match)
 
@@ -76,24 +77,26 @@ class BinaryRenameCollector:
         """PEヘッダからVersionInformationを読み取る"""
         try:
             pe = pefile.PE(exe_path, fast_load=True)
-            pe.parse_data_directories(
-                directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_RESOURCE']]
-            )
+            try:
+                pe.parse_data_directories(
+                    directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_RESOURCE']]
+                )
 
-            info = {}
-            if hasattr(pe, 'FileInfo'):
-                for fi_list in pe.FileInfo:
-                    for fi in fi_list:
-                        if hasattr(fi, 'StringTable'):
-                            for st in fi.StringTable:
-                                for k, v in st.entries.items():
-                                    info[k.decode('utf-8', errors='replace')] = v.decode('utf-8', errors='replace')
-            pe.close()
-            return info if info else None
+                info = {}
+                if hasattr(pe, 'FileInfo'):
+                    for fi_list in pe.FileInfo:
+                        for fi in fi_list:
+                            if hasattr(fi, 'StringTable'):
+                                for st in fi.StringTable:
+                                    for k, v in st.entries.items():
+                                        info[k.decode('utf-8', errors='replace')] = v.decode('utf-8', errors='replace')
+                return info if info else None
+            finally:
+                pe.close()
         except Exception:
             return None
 
-    def _check_rename(self, current_name, exe_path, pe_info):
+    def _check_rename(self, current_name, exe_path, pe_info, *, pid=0):
         """リネーム検知ロジック"""
         current_lower = current_name.lower()
         path_lower = exe_path.lower()
@@ -145,7 +148,7 @@ class BinaryRenameCollector:
                     desc_note=desc_note,
                     rename_type='攻撃ツール',
                     mitre_key='binrename_attack_tool',
-                    pid=0,
+                    pid=pid,
                 )
 
             # システムツールのリネーム検知
@@ -168,7 +171,7 @@ class BinaryRenameCollector:
                     desc_note=desc_note,
                     rename_type='LOLBinリネーム',
                     mitre_key='binrename_lolbin',
-                    pid=0,
+                    pid=pid,
                 )
 
         return None

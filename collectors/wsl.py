@@ -34,7 +34,10 @@ class WSLCollector:
             'base64 -d', 'base64 --decode',
             'chmod +x', 'chmod 777',
             '/tmp/', 'mkfifo',
-            'reverse', 'shell', 'bind',
+            'reverse_tcp', 'reverse_https', 'reverse_http',
+            'bind_tcp', 'bind_shell',
+            '/bin/sh -i',
+            'bash -i',
             'ssh -R', 'ssh -L', 'ssh -D',
             'socat ', 'cryptsetup',
             'dd if=', 'tcpdump',
@@ -355,9 +358,12 @@ class WSLCollector:
 
                 # キーワード分類
                 has_revshell = any(
-                    k['keyword'] in ('nc ', 'ncat ', 'netcat ', 'mkfifo',
-                                     '/dev/tcp/', '/dev/udp/', 'socat ',
-                                     'reverse', 'bind')
+                    k['keyword'] in (
+                        'nc ', 'ncat ', 'netcat ', 'mkfifo',
+                        '/dev/tcp/', '/dev/udp/', 'socat ',
+                        'reverse_tcp', 'reverse_https', 'reverse_http',
+                        'bind_tcp', 'bind_shell', '/bin/sh -i', 'bash -i',
+                    )
                     for k in suspicious_found)
                 has_download = any(
                     k['keyword'] in ('curl ', 'wget ')

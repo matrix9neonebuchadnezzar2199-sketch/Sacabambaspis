@@ -3,6 +3,8 @@
 # 手順書 §5 ステップ2 準拠: ダウンロード元URL追跡
 # ERR-ADS-001〜003: ADS解析エラー系
 import os
+from datetime import datetime
+
 from utils.tutor_template import build_tutor_desc
 
 
@@ -124,7 +126,6 @@ class ADSCollector:
                             file_stat = os.stat(filepath)
                             file_size = file_stat.st_size
                             file_mtime = os.path.getmtime(filepath)
-                            from datetime import datetime
                             timestamp = datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S')
                         except OSError:
                             file_size = 0

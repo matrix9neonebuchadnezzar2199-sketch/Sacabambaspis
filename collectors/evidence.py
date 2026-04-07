@@ -64,6 +64,22 @@ class EvidenceCollector:
     5. BAM/DAM     — バックグラウンド実行記録（レジストリ）
     """
 
+    _TRUSTED_DIRS = (
+        'c:\\windows\\system32\\',
+        'c:\\windows\\syswow64\\',
+        'c:\\program files\\',
+        'c:\\program files (x86)\\',
+        'c:\\windows\\winsxs\\',
+        'c:\\windows\\microsoft.net\\',
+        'c:\\windows\\servicing\\',
+        'c:\\windows\\immersivecontrolpanel\\',
+        'c:\\windows\\systemapps\\',
+        'c:\\windows\\uus\\',
+        'c:\\windows\\temp\\',
+        'c:\\windows\\installer\\',
+        'c:\\windows\\softwaredistribution\\',
+    )
+
     def __init__(self):
         self.attack_tools = list(_tl.ATTACK_TOOLS)
         self.lolbins = list(_tl.LOLBINS)
@@ -108,19 +124,6 @@ class EvidenceCollector:
                 evidence.extend(self._scan_bam())
             finally:
                 set_deferred_signature_verify(False)
-
-            # 信頼パスリスト
-            _trusted_dirs = [
-                'c:\\windows\\system32\\', 'c:\\windows\\syswow64\\',
-                'c:\\program files\\', 'c:\\program files (x86)\\',
-                'c:\\windows\\winsxs\\', 'c:\\windows\\microsoft.net\\',
-                'c:\\windows\\servicing\\', 'c:\\windows\\immersivecontrolpanel\\',
-                'c:\\windows\\systemapps\\',
-                'c:\\windows\\uus\\',
-                'c:\\windows\\temp\\',
-                'c:\\windows\\installer\\',
-                'c:\\windows\\softwaredistribution\\',
-            ]
 
             # 既知アプリパターン（署名検証スキップ対象）
             _known_apps = {
@@ -203,7 +206,7 @@ class EvidenceCollector:
                 if not art:
                     continue
                 art_lower = art.lower()
-                if any(art_lower.startswith(d) for d in _trusted_dirs):
+                if any(art_lower.startswith(d) for d in self._TRUSTED_DIRS):
                     trusted_path_set.add(art)
                 else:
                     # 既知アプリパスチェック
@@ -245,7 +248,7 @@ class EvidenceCollector:
                 # 信頼パス or 既知アプリ → 署名検証不要
                 _is_unc = art.startswith('\\\\')
                 _is_non_exe = not art_lower.endswith('.exe')
-                _is_trusted_dir = _is_unc or _is_non_exe or any(art_lower.startswith(d) for d in _trusted_dirs)
+                _is_trusted_dir = _is_unc or _is_non_exe or any(art_lower.startswith(d) for d in self._TRUSTED_DIRS)
                 _matched_known = None
                 if not _is_trusted_dir:
                     for _pat, _app_name in _known_app_paths:
@@ -298,15 +301,7 @@ class EvidenceCollector:
 
     def _is_trusted_path(self, path_lower):
         """Layer 2: 信頼パスかどうか判定"""
-        trusted_dirs = [
-            'c:\\windows\\system32\\',
-            'c:\\windows\\syswow64\\',
-            'c:\\program files\\',
-            'c:\\program files (x86)\\',
-            'c:\\windows\\winsxs\\',
-            'c:\\windows\\microsoft.net\\',
-        ]
-        return any(path_lower.startswith(d) for d in trusted_dirs)
+        return any(path_lower.startswith(d) for d in self._TRUSTED_DIRS)
 
     def _analyze_exe_path(self, exe_path, source_name, extra_info="", verify_signature_flag=True):
         """実行パスから危険度を判定（Layer 1-3: 完全一致 + 信頼パス + 署名検証）"""
@@ -651,7 +646,7 @@ class EvidenceCollector:
         # 実行ファイル名（offset 16、60バイト、UTF-16LE）
         try:
             raw_name = data[16:76]
-            exe_name = raw_name.decode('utf-16-le', errors='ignore').split('\\x00')[0]
+            exe_name = raw_name.decode('utf-16-le', errors='ignore').split('\x00')[0]
             result['exe_name'] = exe_name
         except Exception:
             pass
@@ -726,7 +721,7 @@ class EvidenceCollector:
             raw = data[offset:offset + size]
             # UTF-16LEのヌル終端文字列リスト
             text = raw.decode('utf-16-le', errors='ignore')
-            files = [f.strip() for f in text.split('\\x00') if f.strip()]
+            files = [f.strip() for f in text.split('\x00') if f.strip()]
 
             suspicious_dirs = [
                 '\\\\temp\\\\', '\\\\tmp\\\\', '\\\\appdata\\\\local\\\\temp\\\\',

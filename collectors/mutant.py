@@ -32,12 +32,6 @@ class MutantCollector:
                 "mitre": "T1059.001",
                 "severity": "critical",
             },
-            "YOURMALWARE": {
-                "name": "Metasploit Default Mutex",
-                "category": "C2/Backdoor",
-                "mitre": "T1059.001",
-                "severity": "critical",
-            },
             # --- Emotet ---
             "PEM2C8": {
                 "name": "Emotet",
@@ -92,9 +86,15 @@ class MutantCollector:
                 "mitre": "T1219",
                 "severity": "critical",
             },
-            # --- DarkComet ---
-            "DC_MUTEX-XXXXXXX": {
+            # --- DarkComet（テンプレ DC_MUTEX-XXXXXXX は検知不能のため実サンプル風の値を列挙） ---
+            "DC_MUTEX-7YCRAK": {
                 "name": "DarkComet",
+                "category": "RAT",
+                "mitre": "T1219",
+                "severity": "critical",
+            },
+            "DC_MUTEX-FXLDVQW": {
+                "name": "DarkComet (variant)",
                 "category": "RAT",
                 "mitre": "T1219",
                 "severity": "critical",
@@ -106,14 +106,14 @@ class MutantCollector:
                 "mitre": "T1219",
                 "severity": "critical",
             },
-            "Remcos-XXXXXX": {
+            "Global\\Remcos-M7QWYX": {
                 "name": "Remcos RAT (variant)",
                 "category": "RAT",
                 "mitre": "T1219",
                 "severity": "critical",
             },
             # --- Gh0st RAT ---
-            "YOURBEAUTIFULKEY": {
+            "Gh0st_RAT_Mutex": {
                 "name": "Gh0st RAT",
                 "category": "RAT",
                 "mitre": "T1219",
@@ -154,8 +154,8 @@ class MutantCollector:
                 "mitre": "T1486",
                 "severity": "critical",
             },
-            # --- Ryuk ---
-            "Global\\YOURBEAUTIFULKEY": {
+            # --- Ryuk（プレースホルダ mutex は削除。報告例ベースの値） ---
+            "Global\\FDC9S3A0-3CA5-1069": {
                 "name": "Ryuk Ransomware",
                 "category": "Ransomware",
                 "mitre": "T1486",

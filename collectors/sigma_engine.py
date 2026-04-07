@@ -5,8 +5,11 @@ SigmaHQ の YAML ルールを読み込み、イベントログに対してマッ
 sigma-rule-matcher (pySigma ベース) を使用。
 """
 
-import os
 import glob
+import os
+import threading
+
+from utils.app_logging import get_logger
 
 try:
     from sigma.rule import SigmaRule
@@ -15,9 +18,12 @@ try:
 except ImportError:
     SIGMA_AVAILABLE = False
 
-# ルールキャッシュ（モジュールレベルで保持）
+_logger = get_logger(__name__)
+
+# ルールキャッシュ（モジュールレベルで保持・並行ロード防止）
 _rule_cache = None
 _rule_load_errors = 0
+_rule_lock = threading.Lock()
 
 
 def _get_rules_dir():
@@ -41,68 +47,72 @@ def _load_rules(directories=None, categories=None):
     if _rule_cache is not None:
         return _rule_cache
 
-    if not SIGMA_AVAILABLE:
-        print("[!] sigma-rule-matcher が未インストールです。pip install sigma-rule-matcher")
-        _rule_cache = []
+    with _rule_lock:
+        if _rule_cache is not None:
+            return _rule_cache
+
+        if not SIGMA_AVAILABLE:
+            _logger.warning("sigma-rule-matcher が未インストールです。pip install sigma-rule-matcher")
+            _rule_cache = []
+            return _rule_cache
+
+        rules = []
+        errors = 0
+        dirs = directories or _get_rules_dir()
+
+        # Sacabambaspis が扱うログソースに関連するカテゴリ
+        relevant_categories = categories or [
+            "security",
+            "service_control_manager",
+            "powershell_script",
+            "powershell_module",
+            "powershell_classic",
+            "application",
+            "system",
+            "process_creation",
+            "registry_set",
+            "registry_event",
+            "file_event",
+            "image_load",
+            "network_connection",
+            "dns_query",
+        ]
+
+        for base_dir in dirs:
+            # 直下の YAML も読む
+            for yml_path in glob.glob(os.path.join(base_dir, "**", "*.yml"), recursive=True):
+                # カテゴリフィルタ
+                parent_folder = os.path.basename(os.path.dirname(yml_path))
+                if relevant_categories and parent_folder not in relevant_categories:
+                    # emerging-threats 等はフォルダ構造が異なるのでスキップしない
+                    if "rules-emerging" in yml_path or "rules-threat" in yml_path:
+                        pass
+                    else:
+                        continue
+
+                try:
+                    with open(yml_path, "r", encoding="utf-8") as f:
+                        raw = f.read()
+
+                    sigma_rule = SigmaRule.from_yaml(raw)
+                    matcher = RuleMatcher(sigma_rule)
+
+                    rules.append({
+                        "matcher": matcher,
+                        "title": sigma_rule.title or os.path.basename(yml_path),
+                        "level": str(sigma_rule.level) if sigma_rule.level else "medium",
+                        "description": sigma_rule.description or "",
+                        "tags": [str(t) for t in (sigma_rule.tags or [])],
+                        "id": str(sigma_rule.id) if sigma_rule.id else "",
+                        "file": os.path.basename(yml_path),
+                    })
+                except Exception:
+                    errors += 1
+
+        _rule_load_errors = errors
+        _rule_cache = rules
+        _logger.info("Sigma: %d ルール読み込み完了 (エラー: %d)", len(rules), errors)
         return _rule_cache
-
-    rules = []
-    errors = 0
-    dirs = directories or _get_rules_dir()
-
-    # Sacabambaspis が扱うログソースに関連するカテゴリ
-    relevant_categories = categories or [
-        "security",
-        "service_control_manager",
-        "powershell_script",
-        "powershell_module",
-        "powershell_classic",
-        "application",
-        "system",
-        "process_creation",
-        "registry_set",
-        "registry_event",
-        "file_event",
-        "image_load",
-        "network_connection",
-        "dns_query",
-    ]
-
-    for base_dir in dirs:
-        # 直下の YAML も読む
-        for yml_path in glob.glob(os.path.join(base_dir, "**", "*.yml"), recursive=True):
-            # カテゴリフィルタ
-            parent_folder = os.path.basename(os.path.dirname(yml_path))
-            if relevant_categories and parent_folder not in relevant_categories:
-                # emerging-threats 等はフォルダ構造が異なるのでスキップしない
-                if "rules-emerging" in yml_path or "rules-threat" in yml_path:
-                    pass
-                else:
-                    continue
-
-            try:
-                with open(yml_path, "r", encoding="utf-8") as f:
-                    raw = f.read()
-
-                sigma_rule = SigmaRule.from_yaml(raw)
-                matcher = RuleMatcher(sigma_rule)
-
-                rules.append({
-                    "matcher": matcher,
-                    "title": sigma_rule.title or os.path.basename(yml_path),
-                    "level": str(sigma_rule.level) if sigma_rule.level else "medium",
-                    "description": sigma_rule.description or "",
-                    "tags": [str(t) for t in (sigma_rule.tags or [])],
-                    "id": str(sigma_rule.id) if sigma_rule.id else "",
-                    "file": os.path.basename(yml_path),
-                })
-            except Exception:
-                errors += 1
-
-    _rule_load_errors = errors
-    _rule_cache = rules
-    print(f"[Sigma] {len(rules)} ルール読み込み完了 (エラー: {errors})")
-    return _rule_cache
 
 
 def get_rule_count():

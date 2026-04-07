@@ -413,11 +413,12 @@ class SRUMCollector:
 
                 parts = line.split()
                 if len(parts) >= 4 and parts[0] in ('TCP', 'UDP'):
-                    parts[0]
+                    if not current_exe:
+                        continue
                     remote = parts[2] if len(parts) > 2 else ''
                     pid = parts[-1]
 
-                    if current_exe and remote and not remote.startswith('0.0.0.0') and not remote.startswith('[::]') and remote != '*:*':
+                    if remote and not remote.startswith('0.0.0.0') and not remote.startswith('[::]') and remote != '*:*':
                         if current_exe not in connections:
                             connections[current_exe] = {'count': 0, 'remotes': set(), 'pid': pid}
                         connections[current_exe]['count'] += 1
